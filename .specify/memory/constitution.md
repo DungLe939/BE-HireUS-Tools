@@ -1,40 +1,45 @@
-﻿<!--
-Sync Impact Report
-Version change: unversioned scaffold → 0.1.0 (initial draft)
-Modified principles: five placeholder slots replaced with source, scope, architecture, security, and verification rules.
-Added sections: Technical Constraints; Development Workflow.
-Removed sections: template examples and placeholder-only section headings.
-Follow-up TODO: formal ratification date and approval are pending.
--->
-# HireUS Backend Constitution
+﻿# HireUS Backend Constitution
+
+**Status: DRAFT — NOT RATIFIED**
 
 ## Core Principles
 
 ### I. Canonical Sources and Decision Provenance
-Business requirements, product scope, and cross-repository decisions MUST be verified through `PROJECT_SOURCES.md` and the referenced CNPM-Docs source. Follow `.agents/rules/source-of-truth.md` when sources differ. Clearly distinguish confirmed decisions from proposals, plans, implementation, tests, and approval. Do not promote a planned item into an implemented or approved fact.
 
-### II. Scope and API Contract Control
-A backend feature MUST trace to an approved requirement and acceptance criteria. Do not invent endpoints, fields, or behavior to fill gaps. Backend owns the REST API contract it exposes; identify compatibility and Frontend impact when changing it. Keep the technical contract in this repository and product requirements in CNPM-Docs.
+CNPM-Docs is authoritative for business requirements and shared cross-repository decisions. `PROJECT_SOURCES.md` identifies relevant sources; follow the source hierarchy defined in CNPM-Docs. A clear, scoped direct user request authorizes work within that task. Keep confirmed decisions, proposals, plans, implementation, test results, submission, and approval as separate states. A plan is not evidence that work is implemented or approved. This prevents intended future work from being mistaken for current behavior.
+
+### II. Scope and REST API Contract Ownership
+
+Changes MUST remain within the explicit task and its applicable requirements. Large features and material business behavior require sufficiently clear requirements and acceptance criteria; a small bug fix does not require the full Spec Kit workflow. Do not turn Spec Kit defaults into project requirements. Backend owns the REST API contract it exposes, and Frontend consumes the contract agreed for the feature. Do not invent endpoints, DTO fields, authentication behavior, response schemas, or error formats. OpenAPI is preferred when a contract is approved, but is not mandatory. API versioning, error format, and concrete authentication policy remain pending decisions.
 
 ### III. NestJS Responsibilities
-Controllers MUST handle the HTTP boundary and delegate application behavior to providers/services. Modules MUST define clear feature boundaries. Use DTOs and the validation mechanisms configured for the repository. Avoid unnecessary abstractions and dependencies; do not claim a validation, authentication, or authorization policy is active until it is configured and supported by an approved requirement.
+
+Controllers MUST handle the HTTP boundary and delegate application behavior to providers or services. Modules MUST define clear feature boundaries. Use DTOs and the validation mechanism configured for the repository; do not claim validation or authorization is active until it is implemented. Avoid unnecessary abstractions. Do not upgrade a framework or add dependencies without an explicit task or confirmed project decision.
 
 ### IV. Data, Security, and External Integrations
-Do not expose credentials or sensitive user data in responses, logs, or client code. External AI integrations MUST remain server-side, validate external responses, and handle timeout/failure paths when an approved feature requires them. Verify the actual database and ORM setup before changing data access. Do not run destructive database commands or migrations without explicit authorization and a reviewed impact.
+
+Protect credentials and sensitive user data from exposure in responses, logs, and client code. Verify the actual data-access setup before changing persistence. Validate untrusted input before using it in queries. Do not run destructive database operations or migrations without explicit authorization and a reviewed impact. External AI integrations, when required by an approved feature, MUST remain server-side, validate provider responses, and handle relevant timeout and failure paths. Do not treat planned database, ORM, or AI technologies as configured by their appearance in a proposal.
 
 ### V. Verification and Controlled Changes
-Use the repository's Jest setup for relevant behavior tests and run the applicable build/type checks when requested or needed to verify a code change. Report the checks run and any limits. Keep changes within the task scope. Do not commit or push unless explicitly requested.
+
+Run checks appropriate to the changed behavior using tools configured in each affected repository, and report the exact checks and results. Backend checks use the configured Jest, TypeScript, and build setup. When a task spans Frontend, use its configured lint, TypeScript, and build checks; do not assume a Frontend test framework exists. The Proposal's coverage target of 70% is a plan, not a mandatory quality gate. Do not introduce coverage thresholds or test frameworks without a confirmed decision. Keep changes within scope and do not commit or push unless explicitly requested.
+
+### VI. Learning-Oriented Development
+
+For significant code changes, explain in Vietnamese the goal and approach, the roles of important files, the main processing flow, notable logic, and how to verify the result. Explain solution choices and trade-offs when they matter. Keep explanations concise for obvious changes, and keep long tutorial material out of production source code. This makes implementation review useful to learners without obscuring the code.
 
 ## Technical Constraints
 
-The verified baseline is NestJS, TypeScript, Node.js, npm, CommonJS, and Jest. The application currently contains only the NestJS starter module, controller, service, and bootstrap. PostgreSQL, Prisma, Swagger/OpenAPI packages, and AI integrations are not configured in this repository. CNPM-Docs may describe them as planned technology; treat them as future work until an approved task and repository state confirm adoption. Do not add services or dependencies solely because they appear in a proposal.
+The affected repository's manifests, lockfile, and source code define its configured framework, runtime, and dependencies; verify them before proposing changes. A technology described only as planned in CNPM-Docs is not automatically part of the implementation. Framework upgrades, new services, and new dependencies require an explicit task or confirmed project decision. Resolve pending decisions before implementing behavior that depends on them.
 
 ## Development Workflow
 
-For a business feature, read `PROJECT_SOURCES.md`, the relevant CNPM-Docs sources, the current Spec Kit artifacts, and the existing code before implementation. Re-verify the source revision when source documents change. If required documents cannot be accessed, mark the business requirements unverified and request the relevant path or file; continue independent technical work where possible. Never update CNPM-Docs while working in Backend. If shared documentation needs a change, report the proposed change for the Docs repository. Local specifications MUST reference the applicable central requirement and MUST NOT contradict it.
+This constitution contains durable principles. `AGENTS.md` contains repository-level coding and development instructions; `PROJECT_SOURCES.md` explains how to find and record business sources; `contracts/README.md` defines the local API-contract workflow; and `SKILL.md` files provide task-specific procedures. CNPM-Docs owns business documentation and shared project decisions. Do not copy Proposal or other product documentation into Backend, and do not update CNPM-Docs during a Backend task. Report shared documentation changes for its owner to apply. Local specifications MUST reference the applicable central requirement and MUST NOT contradict it.
+
+For a significant feature, resolve material requirements and acceptance criteria before implementation. Small, reversible technical assumptions may be used only when they do not change business behavior, security, data, or API contracts; state them clearly. If a relevant source changes, verify it before updating dependent implementation. Continue independent work when a source is unavailable, and identify what remains unverified.
 
 ## Governance
 
-This constitution governs Backend engineering practices; it does not replace or duplicate product documentation. CNPM-Docs remains authoritative for product scope and cross-repository decisions. If a conflict remains after applying its source hierarchy and current user instructions, describe the conflict and ask for resolution before dependent implementation. Amend this constitution only when requested or when an explicit project decision changes. Record a version change and amendment date; do not imply formal ratification while the ratification date is unresolved.
+This constitution governs Backend engineering practices. It does not replace CNPM-Docs as the authority for business requirements or shared decisions. Amend this document only for an explicit project decision or requested update. Keep it in Draft/Unratified status until the project owner explicitly approves it; record a ratification date only after that approval. While it is a draft, use `0.x.y` versions. Apply semantic versioning: PATCH for wording or clarifications that do not change obligations, MINOR for additive principles or material expansion, and MAJOR for incompatible principle removals or redefinitions. Record the amendment date for each content change. Review relevant work against these principles; keep detailed checklists and task procedures in the repository instructions and skills.
 
-**Version**: 0.1.0 | **Ratified**: TODO(RATIFICATION_DATE): pending project owner approval | **Last Amended**: 2026-10-27
+**Version**: 0.2.0 | **Ratified**: TODO(RATIFICATION_DATE): awaiting explicit project-owner approval | **Last Amended**: 2026-10-28
