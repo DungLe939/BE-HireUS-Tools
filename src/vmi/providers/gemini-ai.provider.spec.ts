@@ -275,3 +275,103 @@ describe('GeminiAiProvider.initInterviewContext', () => {
     }
   });
 });
+
+
+describe('GeminiAiProvider.generateNextQuestion', () => {
+  const nextInput = {
+    ...input, context: 'Saved context', questionPlan: plan().questionPlan as import('../types/vmi.types').VmiPlannedQuestion[],
+    transcript: [{ questionId: 'q1', questionText: 'Opening', stage: VmiStage.OPENING, answerText: 'Previous answer' }],
+    nextQuestionIndex: 1, stage: VmiStage.TECHNICAL, requireCvBased: false,
+  };
+  let provider: GeminiAiProvider;
+  let fetchMock: jest.SpiedFunction<typeof fetch>;
+  beforeEach(() => {
+    jest.replaceProperty(process, 'env', { ...process.env, GEMINI_API_KEY: 'fake-key', GEMINI_MODEL: 'test-model', GEMINI_TIMEOUT_MS: '20' });
+    fetchMock = jest.spyOn(globalThis, 'fetch');
+    provider = new GeminiAiProvider();
+  });
+  afterEach(() => jest.restoreAllMocks());
+  it('uses the stored plan, context and transcript to request a technical follow-up', async () => {
+    fetchMock.mockResolvedValue(Response.json(envelope(JSON.stringify({ stage: 'TECHNICAL', questionText: 'Follow up', cvBased: false }))));
+    await expect(provider.generateNextQuestion(nextInput)).resolves.toEqual({ stage: 'TECHNICAL', questionText: 'Follow up', cvBased: false });
+    const sent = JSON.stringify(JSON.parse(fetchMock.mock.calls[0][1]!.body as string));
+    expect(sent).toContain('Saved context'); expect(sent).toContain('Previous answer');
+    expect(sent).toContain('questionPlan'); expect(sent).toContain('follow-up');
+    expect(sent).toContain('Vietnamese'); expect(sent).toContain('40%');
+  });
+  it.each([
+    { stage: 'CLOSING', questionText: 'Wrong phase', cvBased: false },
+    { stage: 'TECHNICAL', questionText: ' ', cvBased: false },
+    { stage: 'TECHNICAL', questionText: 'Question' },
+    { stage: 'TECHNICAL', questionText: 'Question', cvBased: false, extra: true },
+  ])('rejects an invalid next question %#', async value => {
+    fetchMock.mockResolvedValue(Response.json(envelope(JSON.stringify(value))));
+    await expect(provider.generateNextQuestion(nextInput)).rejects.toMatchObject({ status: 502 });
+  });
+  it('enforces required CV grounding', async () => {
+    fetchMock.mockResolvedValue(Response.json(envelope(JSON.stringify({ stage: 'TECHNICAL', questionText: 'Question', cvBased: false }))));
+    await expect(provider.generateNextQuestion({ ...nextInput, cvSnapshot: { id: 'cv', summary: 'CV' }, requireCvBased: true })).rejects.toMatchObject({ status: 502 });
+  });
+  it.each([[400,502],[429,503],[503,503],[504,504]])('maps HTTP %i cleanly', async (upstream, status) => {
+    fetchMock.mockResolvedValue(new Response('fake-key private-answer', { status: upstream }));
+    try { await provider.generateNextQuestion(nextInput); throw new Error('Expected rejection'); }
+    catch (e) { expect(e).toMatchObject({ status }); expect(JSON.stringify(e)).not.toContain('private-answer'); expect(JSON.stringify(e)).not.toContain('fake-key'); }
+  });
+  it('handles malformed JSON and network failure', async () => {
+    fetchMock.mockResolvedValue(Response.json(envelope('invalid JSON')));
+    await expect(provider.generateNextQuestion(nextInput)).rejects.toMatchObject({ status: 502 });
+    fetchMock.mockRejectedValue(new Error('private-answer'));
+    await expect(provider.generateNextQuestion(nextInput)).rejects.toMatchObject({ status: 503 });
+  });
+  it('honors configured timeout', async () => {
+    fetchMock.mockImplementation((_url, options) => new Promise((_r, reject) => {
+      options!.signal!.addEventListener('abort', () => reject(options!.signal!.reason), { once: true });
+    }));
+    await expect(provider.generateNextQuestion(nextInput)).rejects.toMatchObject({ status: 504 });
+  });
+});
+
+
+describe('GeminiAiProvider.evaluateInterview', () => {
+  const assessment = { technical: 80, problemSolving: 70, communication: 60,
+    strengths: ['Strength'], knowledgeGaps: ['Gap'], suggestedAnswers: ['Better answer'], reviewTopics: ['Topic'] };
+  const evalInput = { ...input, context: 'Saved context', questionPlan: plan().questionPlan as import('../types/vmi.types').VmiPlannedQuestion[],
+    transcript: [{ questionId: 'q1', questionText: 'Opening', stage: VmiStage.OPENING, answerText: 'Full transcript' }] };
+  let provider: GeminiAiProvider; let fetchMock: jest.SpiedFunction<typeof fetch>;
+  beforeEach(() => {
+    jest.replaceProperty(process, 'env', { ...process.env, GEMINI_API_KEY: 'fake-key', GEMINI_MODEL: 'test-model', GEMINI_TIMEOUT_MS: '20' });
+    fetchMock = jest.spyOn(globalThis, 'fetch'); provider = new GeminiAiProvider();
+  });
+  afterEach(() => jest.restoreAllMocks());
+  it.each([VmiLanguage.VI, VmiLanguage.EN])('evaluates all transcript with localized feedback (%s)', async language => {
+    fetchMock.mockResolvedValue(Response.json(envelope(JSON.stringify(assessment))));
+    await expect(provider.evaluateInterview({ ...evalInput, language })).resolves.toEqual(assessment);
+    const sent = JSON.parse(fetchMock.mock.calls[0][1]!.body as string);
+    expect(sent.contents[0].parts[0].text).toContain('Full transcript');
+    expect(sent.systemInstruction.parts[0].text).toContain(language === 'vi' ? 'Vietnamese' : 'English');
+    expect(sent.systemInstruction.parts[0].text).toContain('0-100');
+  });
+  it.each([
+    { ...assessment, technical: -1 }, { ...assessment, communication: 101 },
+    { ...assessment, problemSolving: '70' }, { ...assessment, technical: null },
+    { ...assessment, strengths: 'text' }, { ...assessment, knowledgeGaps: [1] },
+    { ...assessment, suggestedAnswers: [' '] }, { ...assessment, reviewTopics: null },
+    { ...assessment, overallScore: 100 }, {}, null,
+  ])('rejects invalid evaluation schema %#', async value => {
+    fetchMock.mockResolvedValue(Response.json(envelope(JSON.stringify(value))));
+    await expect(provider.evaluateInterview(evalInput)).rejects.toMatchObject({ status: 502 });
+  });
+  it.each([[400,502],[429,503],[500,502],[503,503],[504,504]])('maps HTTP %i safely', async (upstream,status) => {
+    fetchMock.mockResolvedValue(new Response('fake-key private-transcript', { status: upstream }));
+    try { await provider.evaluateInterview(evalInput); throw new Error('Expected failure'); }
+    catch(e) { expect(e).toMatchObject({ status }); expect(JSON.stringify(e)).not.toContain('fake-key'); expect(JSON.stringify(e)).not.toContain('private-transcript'); }
+  });
+  it('rejects malformed JSON, network errors and timeout', async () => {
+    fetchMock.mockResolvedValue(Response.json(envelope('bad JSON')));
+    await expect(provider.evaluateInterview(evalInput)).rejects.toMatchObject({ status: 502 });
+    fetchMock.mockRejectedValue(new Error('private-transcript'));
+    await expect(provider.evaluateInterview(evalInput)).rejects.toMatchObject({ status: 503 });
+    fetchMock.mockImplementation((_url,options) => new Promise((_r,reject) => { options!.signal!.addEventListener('abort',() => reject(options!.signal!.reason),{once:true}); }));
+    await expect(provider.evaluateInterview(evalInput)).rejects.toMatchObject({ status: 504 });
+  });
+});

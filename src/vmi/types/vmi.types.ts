@@ -56,6 +56,25 @@ export interface InitInterviewContextOutput {
   openingQuestion: VmiPlannedQuestion;
 }
 
+export interface GenerateNextQuestionInput extends InitInterviewContextInput {
+  context: string;
+  questionPlan: VmiPlannedQuestion[];
+  transcript: VmiTurn[];
+  nextQuestionIndex: number;
+  stage: VmiStage;
+  requireCvBased: boolean;
+}
+
+export interface EvaluateInterviewInput extends InitInterviewContextInput {
+  context: string;
+  questionPlan: VmiPlannedQuestion[];
+  transcript: VmiTurn[];
+}
+
+export type EvaluateInterviewOutput = Pick<VmiReport,
+  'technical' | 'problemSolving' | 'communication' | 'strengths' |
+  'knowledgeGaps' | 'suggestedAnswers' | 'reviewTopics'>;
+
 export interface VmiTurn {
   questionId: string;
   questionText: string;
@@ -65,12 +84,14 @@ export interface VmiTurn {
   answeredAt?: Date;
   elapsedSeconds?: number;
   timedOut?: boolean;
+  cvBased?: boolean;
 }
 
 export interface VmiReport {
   technical: number;
   problemSolving: number;
   communication: number;
+  /** Stored without rounding; only API responses round this value. */
   overallScore: number;
   band: 'RED' | 'YELLOW' | 'GREEN';
   strengths: string[];
@@ -90,6 +111,10 @@ export interface VmiSession {
   language: VmiLanguage;
   status: VmiSessionStatus;
   targetQuestionCount: number;
+  context?: string;
+  questionPlan?: VmiPlannedQuestion[];
+  pendingNextQuestion: boolean;
+  lastAiError?: string;
   cvId?: string;
   cvSnapshot?: CvSummary;
   turns: VmiTurn[];

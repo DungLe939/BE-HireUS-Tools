@@ -1,4 +1,4 @@
-import { BadGatewayException, GatewayTimeoutException, ServiceUnavailableException } from '@nestjs/common';
+import { BadGatewayException, GatewayTimeoutException, ServiceUnavailableException, Logger } from '@nestjs/common';
 import type { AiProvider } from './interfaces/ai-provider.interface';
 import type { CvProvider } from './interfaces/cv-provider.interface';
 import { EmptyCvProvider } from './providers/empty-cv.provider';
@@ -25,7 +25,7 @@ describe('VmiService', () => {
 
   beforeEach(() => {
     repository = new InMemoryVmiSessionRepository();
-    ai = { initInterviewContext: jest.fn().mockResolvedValue(structuredClone(aiResult)) };
+    ai = { initInterviewContext: jest.fn().mockResolvedValue(structuredClone(aiResult)), generateNextQuestion: jest.fn(), evaluateInterview: jest.fn() };
     cv = { getSummary: jest.fn().mockResolvedValue(null) };
     service = new VmiService(repository, ai, cv);
   });
@@ -177,5 +177,264 @@ describe('VmiService', () => {
     await repository.save(loaded);
     loaded.turns.push({ questionId: 'external', questionText: 'External', stage: VmiStage.OPENING });
     expect((await repository.findById(created.id))!.turns).toEqual([]);
+  });
+});
+
+
+describe('VmiService text interview', () => {
+  let latencyLog: jest.SpyInstance;
+  let repository: InMemoryVmiSessionRepository;
+  let service: VmiService;
+  let ai: jest.Mocked<AiProvider>;
+
+  beforeEach(() => {
+    latencyLog = jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+    repository = new InMemoryVmiSessionRepository();
+    ai = {
+      initInterviewContext: jest.fn().mockImplementation(async (input) => ({
+        context: 'internal-context-marker', openingQuestion: opening,
+        questionPlan: [opening, ...Array.from({ length: input.targetQuestionCount - 2 }, () => ({
+          stage: VmiStage.TECHNICAL, questionText: 'Planned technical question', cvBased: false,
+        })), { stage: VmiStage.CLOSING, questionText: 'Closing', cvBased: false }],
+      })),
+      evaluateInterview: jest.fn(),
+      generateNextQuestion: jest.fn().mockImplementation(async (input) => ({
+        stage: input.stage, questionText: 'Adaptive follow-up', cvBased: input.requireCvBased,
+      })),
+    };
+    service = new VmiService(repository, ai, new EmptyCvProvider());
+  });
+
+  afterEach(() => jest.restoreAllMocks());
+
+  async function started(count = 5) {
+    const created = await service.createSession('owner', { ...setup, targetQuestionCount: count });
+    return service.startSession('owner', created.id, { deviceReady: true });
+  }
+
+  it('stores context and questionPlan internally when starting', async () => {
+    const result = await started();
+    const saved = (await repository.findById(result.id))!;
+    expect(saved.context).toBe('internal-context-marker');
+    expect(saved.questionPlan).toHaveLength(5);
+    expect(result).not.toHaveProperty('context');
+    expect(result).not.toHaveProperty('questionPlan');
+  });
+
+  it.each([5, 8])('completes exactly %i questions in three stages', async (count) => {
+    const result = await started(count);
+    let question = result.question;
+    const stages = [question.stage];
+    for (let index = 0; index < count; index++) {
+      const answer = await service.submitAnswer('owner', result.id, { questionId: question.questionId, answerText: 'Confirmed answer' });
+      expect(answer.completed).toBe(index === count - 1);
+      if (answer.question) { question = answer.question; stages.push(question.stage); }
+    }
+    expect(stages).toEqual(['OPENING', ...Array(count - 2).fill('TECHNICAL'), 'CLOSING']);
+    const saved = (await repository.findById(result.id))!;
+    expect(saved.status).toBe('ENDED');
+    expect(saved.turns.filter(t => t.answerText !== undefined)).toHaveLength(count);
+    expect(saved.pendingNextQuestion).toBe(false);
+    expect(ai.generateNextQuestion).toHaveBeenCalledTimes(count - 1);
+    expect(ai.generateNextQuestion.mock.calls[0][0]).toMatchObject({
+      context: 'internal-context-marker', nextQuestionIndex: 1,
+      questionPlan: expect.any(Array), transcript: [expect.objectContaining({ answerText: 'Confirmed answer' })],
+    });
+  });
+
+  it.each([[180000, false], [180001, true]])('uses a strict 180s timeout at %i ms', async (milliseconds, timedOut) => {
+    const result = await started();
+    const saved = (await repository.findById(result.id))!;
+    saved.turns[0].askedAt = new Date(1000000);
+    await repository.save(saved);
+    const now = jest.spyOn(Date, 'now').mockReturnValue(1000000 + milliseconds);
+    try {
+      const answer = await service.submitAnswer('owner', result.id, { questionId: result.question.questionId, answerText: 'Late answer' });
+      expect(answer.acceptedAnswer.timedOut).toBe(timedOut);
+      expect((await repository.findById(result.id))!.turns[0].elapsedSeconds).toBe(milliseconds / 1000);
+    } finally { now.mockRestore(); }
+  });
+
+  it('logs latency without question, answer or session content', async () => {
+    const result = await started();
+    await service.submitAnswer('owner', result.id, { questionId: result.question.questionId, answerText: 'private-answer-marker' });
+    const metric = latencyLog.mock.calls[0][0];
+    expect(Object.keys(metric).sort()).toEqual(['durationMs', 'event']);
+    expect(metric.event).toBe('generateNextQuestion');
+    expect(metric.durationMs).toBeGreaterThanOrEqual(0);
+    expect(JSON.stringify(latencyLog.mock.calls)).not.toContain('private-answer-marker');
+  });
+
+  it('preserves the CV technical-question quota across the actual interview', async () => {
+    service = new VmiService(repository, ai, { getSummary: jest.fn().mockResolvedValue({ id: 'cv', summary: 'Project' }) });
+    const originalInit = ai.initInterviewContext.getMockImplementation()!;
+    ai.initInterviewContext.mockImplementation(async input => {
+      const result = await originalInit(input);
+      result.questionPlan[1].cvBased = true;
+      result.questionPlan[2].cvBased = true;
+      return result;
+    });
+    const created = await service.createSession('owner', { ...setup, cvId: 'cv', targetQuestionCount: 5 });
+    const result = await service.startSession('owner', created.id, { deviceReady: true });
+    let question = result.question;
+    for (let index = 0; index < 5; index++) {
+      const answer = await service.submitAnswer('owner', result.id, { questionId: question.questionId, answerText: 'Answer' });
+      if (answer.question) question = answer.question;
+    }
+    const saved = (await repository.findById(result.id))!;
+    expect(saved.turns.filter(t => t.stage === 'TECHNICAL' && t.cvBased)).toHaveLength(2);
+  });
+
+  it('rejects foreign, stale and duplicate answers', async () => {
+    const result = await started();
+    const answer = { questionId: result.question.questionId, answerText: 'Answer' };
+    await expect(service.submitAnswer('other', result.id, answer)).rejects.toMatchObject({ status: 404 });
+    await expect(service.submitAnswer('owner', result.id, { ...answer, questionId: 'wrong' })).rejects.toMatchObject({ status: 409 });
+    await service.submitAnswer('owner', result.id, answer);
+    await expect(service.submitAnswer('owner', result.id, answer)).rejects.toMatchObject({ status: 409 });
+    expect(ai.generateNextQuestion).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([502, 503, 504])('preserves an answer before an AI %i failure and blocks resubmission', async status => {
+    const result = await started();
+    ai.generateNextQuestion.mockImplementationOnce(async () => {
+      const saved = (await repository.findById(result.id))!;
+      expect(saved.pendingNextQuestion).toBe(true);
+      expect(saved.turns[0].answerText).toBe('Preserved answer');
+      if (status === 504) throw new GatewayTimeoutException('private-marker');
+      if (status === 503) throw new ServiceUnavailableException('private-marker');
+      throw new BadGatewayException('private-marker');
+    });
+    const answer = { questionId: result.question.questionId, answerText: 'Preserved answer' };
+    await expect(service.submitAnswer('owner', result.id, answer)).rejects.toMatchObject({ status, response: { pendingNextQuestion: true } });
+    const saved = (await repository.findById(result.id))!;
+    expect(saved.turns).toHaveLength(1);
+    expect(saved.turns[0].answerText).toBe(answer.answerText);
+    expect(saved.status).toBe('IN_PROGRESS');
+    expect(saved.lastAiError).not.toContain('private-marker');
+    await expect(service.submitAnswer('owner', result.id, answer)).rejects.toMatchObject({ status: 409 });
+    await expect(service.finishSession('owner', result.id)).resolves.toMatchObject({ status: 'ENDED' });
+  });
+
+  it('can finish with zero answers and rejects further submissions', async () => {
+    const result = await started();
+    await expect(service.finishSession('other', result.id)).rejects.toMatchObject({ status: 404 });
+    await service.finishSession('owner', result.id);
+    await expect(service.submitAnswer('owner', result.id, { questionId: result.question.questionId, answerText: 'Answer' })).rejects.toMatchObject({ status: 409 });
+    await expect(service.finishSession('owner', result.id)).rejects.toMatchObject({ status: 409 });
+  });
+
+  it.each([false, true])('finishes during AI generation without losing the answer or reopening on late success/failure (%s)', async fail => {
+    const result = await started();
+    let release!: () => void;
+    let entered!: () => void;
+    const enteredAi = new Promise<void>(r => { entered = r; });
+    ai.generateNextQuestion.mockImplementationOnce(async input => {
+      entered();
+      await new Promise<void>(r => { release = r; });
+      if (fail) throw new GatewayTimeoutException();
+      return { stage: input.stage, questionText: 'Late question', cvBased: false };
+    });
+    const pending = service.submitAnswer('owner', result.id, { questionId: result.question.questionId, answerText: 'Saved before AI' });
+    await enteredAi;
+    await expect(service.submitAnswer('owner', result.id, { questionId: result.question.questionId, answerText: 'Duplicate' })).rejects.toMatchObject({ status: 409 });
+    await service.finishSession('owner', result.id);
+    release();
+    expect((await pending).completed).toBe(true);
+    const saved = (await repository.findById(result.id))!;
+    expect(saved.status).toBe('ENDED');
+    expect(saved.turns).toHaveLength(1);
+    expect(saved.turns[0].answerText).toBe('Saved before AI');
+    expect(saved.pendingNextQuestion).toBe(false);
+  });
+});
+
+
+describe('VmiService evaluation', () => {
+  let repository: InMemoryVmiSessionRepository;
+  let ai: jest.Mocked<AiProvider>;
+  let service: VmiService;
+  const assessment = { technical: 80, problemSolving: 50, communication: 20,
+    strengths: ['Strength'], knowledgeGaps: ['Gap'], suggestedAnswers: ['Better answer'], reviewTopics: ['Topic'] };
+  beforeEach(() => {
+    repository = new InMemoryVmiSessionRepository();
+    ai = { initInterviewContext: jest.fn().mockResolvedValue(structuredClone(aiResult)),
+      generateNextQuestion: jest.fn().mockResolvedValue({ stage: VmiStage.TECHNICAL, questionText: 'Next', cvBased: false }),
+      evaluateInterview: jest.fn().mockResolvedValue({ ...assessment, overallScore: 100, band: 'GREEN' }),
+    };
+    service = new VmiService(repository, ai, new EmptyCvProvider());
+    jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+  });
+  afterEach(() => jest.restoreAllMocks());
+  async function ended(withAnswer = true) {
+    const created = await service.createSession('owner', { ...setup, language: VmiLanguage.EN });
+    const started = await service.startSession('owner', created.id, { deviceReady: true });
+    if (withAnswer) await service.submitAnswer('owner', created.id, { questionId: started.question.questionId, answerText: 'Full answer' });
+    await service.finishSession('owner', created.id);
+    return created.id;
+  }
+  it('computes its own score, stores a report and returns the complete transcript', async () => {
+    const id = await ended();
+    const before = (await repository.findById(id))!;
+    const result = await service.evaluateSession('owner', id);
+    expect(result.report).toMatchObject({ ...assessment, overallScore: 59, band: 'YELLOW' });
+    expect(result.report.disclaimer).toContain('does not predict hiring');
+    expect(result.transcript).toHaveLength(before.turns.length);
+    expect(result.transcript[0].answerText).toBe('Full answer');
+    expect(result).not.toHaveProperty('context'); expect(result).not.toHaveProperty('questionPlan');
+    expect(ai.evaluateInterview.mock.calls[0][0].transcript).toEqual(before.turns);
+    expect(ai.evaluateInterview.mock.calls[0][0].language).toBe('en');
+    expect((await repository.findById(id))!.status).toBe('EVALUATED');
+    expect(await service.getReport('owner', id)).toEqual(result);
+    await expect(service.evaluateSession('owner', id)).rejects.toMatchObject({ status: 409 });
+    expect(ai.evaluateInterview).toHaveBeenCalledTimes(1);
+  });
+  it.each([[49.999, 50, 'RED'], [74.999, 75, 'YELLOW'], [50, 50, 'YELLOW'], [75, 75, 'GREEN']])('rounds only API output for %s', async (value, rounded, band) => {
+    const id = await ended();
+    ai.evaluateInterview.mockResolvedValue({ ...assessment, technical: value as number, problemSolving: value as number, communication: value as number });
+    const result = await service.evaluateSession('owner', id);
+    expect(result.report.overallScore).toBe(rounded);
+    expect(result.report.band).toBe(band);
+    expect((await repository.findById(id))!.report!.overallScore).toBeCloseTo(value as number, 10);
+  });
+  it('refuses zero-answer evaluation without saving a result', async () => {
+    const id = await ended(false);
+    const before = await repository.findById(id);
+    await expect(service.evaluateSession('owner', id)).rejects.toMatchObject({ status: 422 });
+    expect(await repository.findById(id)).toEqual(before);
+    expect(ai.evaluateInterview).not.toHaveBeenCalled();
+  });
+  it('checks ownership, status and report availability', async () => {
+    const created = await service.createSession('owner', setup);
+    await expect(service.evaluateSession('other', created.id)).rejects.toMatchObject({ status: 404 });
+    await expect(service.evaluateSession('owner', created.id)).rejects.toMatchObject({ status: 409 });
+    await expect(service.getReport('other', created.id)).rejects.toMatchObject({ status: 404 });
+    await expect(service.getReport('owner', created.id)).rejects.toMatchObject({ status: 404 });
+  });
+  it.each([502,503,504])('preserves every transcript field on AI %i and sets REPORT_FAILED', async status => {
+    const id = await ended();
+    const before = (await repository.findById(id))!;
+    ai.evaluateInterview.mockRejectedValue(status === 504 ? new GatewayTimeoutException('private-marker') : status === 503 ? new ServiceUnavailableException('private-marker') : new BadGatewayException('private-marker'));
+    await expect(service.evaluateSession('owner', id)).rejects.toMatchObject({ status, response: { sessionStatus: 'REPORT_FAILED', code: expect.any(String) } });
+    const after = (await repository.findById(id))!;
+    expect(after.status).toBe('REPORT_FAILED');
+    expect(after.turns).toEqual(before.turns);
+    expect(after.report).toBeUndefined();
+    expect(after.context).toBe(before.context);
+    expect(after.questionPlan).toEqual(before.questionPlan);
+    expect(after.lastAiError).not.toContain('private-marker');
+    await expect(service.evaluateSession('owner', id)).rejects.toMatchObject({ status: 409 });
+    await expect(service.getReport('owner', id)).rejects.toMatchObject({ status: 404 });
+  });
+  it('prevents concurrent evaluation requests', async () => {
+    const id = await ended();
+    let release!: () => void; let entered!: () => void;
+    const enteredAi = new Promise<void>(r => { entered = r; });
+    ai.evaluateInterview.mockImplementationOnce(async () => { entered(); await new Promise<void>(r => { release = r; }); return assessment; });
+    const pending = service.evaluateSession('owner', id);
+    await enteredAi;
+    await expect(service.evaluateSession('owner', id)).rejects.toMatchObject({ status: 409 });
+    release(); await pending;
+    expect(ai.evaluateInterview).toHaveBeenCalledTimes(1);
   });
 });

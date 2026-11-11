@@ -7,8 +7,10 @@ import {
   HttpException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
   ServiceUnavailableException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { AI_PROVIDER } from './interfaces/ai-provider.interface';
 import type { AiProvider } from './interfaces/ai-provider.interface';
@@ -18,11 +20,228 @@ import { VMI_SESSION_REPOSITORY } from './interfaces/vmi-session-repository.inte
 import type { VmiSessionRepository } from './interfaces/vmi-session-repository.interface';
 import type { CreateVmiSessionDto } from './dto/create-vmi-session.dto';
 import type { StartVmiSessionDto } from './dto/start-vmi-session.dto';
-import { VmiLanguage, VmiLevel, VmiPosition, VmiSessionStatus } from './types/vmi.types';
-import type { InitInterviewContextOutput, VmiSession, VmiTurn } from './types/vmi.types';
+import { VmiLanguage, VmiLevel, VmiPosition, VmiSessionStatus, VmiStage } from './types/vmi.types';
+import type { InitInterviewContextOutput, VmiSession, VmiTurn, GenerateNextQuestionInput, VmiPlannedQuestion, VmiReport } from './types/vmi.types';
+
+import { calculateVmiScore } from './utils/vmi-scoring.util';
 
 @Injectable()
 export class VmiService {
+  private readonly evaluatingSessions = new Set<string>();
+
+  async evaluateSession(userId: string, id: string) {
+    const session = await this.mutateSession(userId, id, async current => {
+      if (current.status !== VmiSessionStatus.ENDED || this.evaluatingSessions.has(id)) {
+        throw new ConflictException('Session is not ready for evaluation.');
+      }
+      if (!current.turns.some(turn => turn.answerText?.trim())) {
+        throw new UnprocessableEntityException('Not enough interview data to evaluate.');
+      }
+      this.evaluatingSessions.add(id);
+      return current;
+    });
+    try {
+      const assessment = await this.ai.evaluateInterview({
+        position: session.position, level: session.level, language: session.language,
+        targetQuestionCount: session.targetQuestionCount, cvSnapshot: structuredClone(session.cvSnapshot),
+        context: session.context!, questionPlan: structuredClone(session.questionPlan!), transcript: structuredClone(session.turns),
+      });
+      const calculated = calculateVmiScore(assessment, session.language);
+      const report: VmiReport = {
+        technical: assessment.technical, problemSolving: assessment.problemSolving, communication: assessment.communication,
+        overallScore: calculated.rawScore, band: calculated.band,
+        strengths: structuredClone(assessment.strengths), knowledgeGaps: structuredClone(assessment.knowledgeGaps),
+        suggestedAnswers: structuredClone(assessment.suggestedAnswers), reviewTopics: structuredClone(assessment.reviewTopics),
+        recommendation: calculated.recommendation, disclaimer: calculated.disclaimer, createdAt: new Date(Date.now()),
+      };
+      return await this.mutateSession(userId, id, async current => {
+        current.report = report;
+        current.status = VmiSessionStatus.EVALUATED;
+        current.updatedAt = report.createdAt;
+        delete current.lastAiError;
+        await this.repository.save(current);
+        return this.reportResult(current);
+      });
+    } catch (error: unknown) {
+      const failure = this.operationAiError(error, 'REPORT');
+      await this.mutateSession(userId, id, async current => {
+        current.status = VmiSessionStatus.REPORT_FAILED;
+        current.lastAiError = (failure.getResponse() as { code: string }).code;
+        current.updatedAt = new Date(Date.now());
+        await this.repository.save(current);
+      });
+      throw failure;
+    } finally {
+      this.evaluatingSessions.delete(id);
+    }
+  }
+
+  async getReport(userId: string, id: string) {
+    const session = await this.ownedSession(userId, id);
+    if (session.status !== VmiSessionStatus.EVALUATED || !session.report) throw new NotFoundException('Report not found.');
+    return this.reportResult(session);
+  }
+
+  private reportResult(session: VmiSession) {
+    const report = session.report!;
+    return {
+      id: session.id, status: VmiSessionStatus.EVALUATED, language: session.language,
+      transcript: session.turns.map(turn => ({
+        questionId: turn.questionId, questionText: turn.questionText, stage: turn.stage, askedAt: turn.askedAt,
+        ...(turn.answerText !== undefined ? { answerText: turn.answerText, answeredAt: turn.answeredAt,
+          elapsedSeconds: turn.elapsedSeconds, timedOut: turn.timedOut } : {}),
+      })),
+      report: { ...report, overallScore: Number(report.overallScore.toFixed(2)) },
+    };
+  }
+
+  private readonly logger = new Logger(VmiService.name);
+  private readonly mutations = new Map<string, Promise<void>>();
+
+  async submitAnswer(userId: string, id: string, input: { questionId: string; answerText: string }) {
+    const prepared = await this.mutateSession(userId, id, async session => {
+      if (session.status !== VmiSessionStatus.IN_PROGRESS || session.pendingNextQuestion) {
+        throw new ConflictException('Session is not ready for an answer.');
+      }
+      const turn = session.turns.at(-1);
+      if (!turn || turn.questionId !== input.questionId || turn.answerText !== undefined || !turn.askedAt) {
+        throw new ConflictException('Question is not awaiting an answer.');
+      }
+      const now = new Date(Date.now());
+      turn.answerText = input.answerText;
+      turn.answeredAt = now;
+      turn.elapsedSeconds = Math.max(0, (now.getTime() - turn.askedAt.getTime()) / 1000);
+      turn.timedOut = turn.elapsedSeconds > 180;
+      session.updatedAt = now;
+      if (session.turns.length === session.targetQuestionCount) {
+        session.status = VmiSessionStatus.ENDED;
+        session.endedAt = now;
+        session.pendingNextQuestion = false;
+      } else {
+        session.pendingNextQuestion = true;
+      }
+      await this.repository.save(session);
+      return { session, acceptedAnswer: {
+        questionId: turn.questionId, elapsedSeconds: turn.elapsedSeconds, timedOut: turn.timedOut,
+      } };
+    });
+    if (prepared.session.status === VmiSessionStatus.ENDED) {
+      return this.answerResult(prepared.session, prepared.acceptedAnswer);
+    }
+
+    let generated: VmiPlannedQuestion;
+    const generationInput = this.nextQuestionInput(prepared.session);
+    const began = performance.now();
+    try {
+      generated = await this.ai.generateNextQuestion(generationInput);
+      if (generated.stage !== generationInput.stage || !generated.questionText?.trim() ||
+        typeof generated.cvBased !== 'boolean' || (generationInput.requireCvBased && !generated.cvBased) ||
+        (!prepared.session.cvSnapshot && generated.cvBased)) {
+        throw new BadGatewayException();
+      }
+    } catch (error: unknown) {
+      const failure = this.operationAiError(error, 'NEXT_QUESTION');
+      const ended = await this.mutateSession(userId, id, async session => {
+        if (session.status !== VmiSessionStatus.IN_PROGRESS) return true;
+        session.lastAiError = (failure.getResponse() as { code: string }).code;
+        session.updatedAt = new Date(Date.now());
+        await this.repository.save(session);
+        return false;
+      });
+      if (ended) return this.answerResult({ status: VmiSessionStatus.ENDED, id }, prepared.acceptedAnswer);
+      throw failure;
+    } finally {
+      this.logger.log({ event: 'generateNextQuestion', durationMs: Number((performance.now() - began).toFixed(3)) });
+    }
+    return this.mutateSession(userId, id, async session => {
+      if (session.status !== VmiSessionStatus.IN_PROGRESS) return this.answerResult(session, prepared.acceptedAnswer);
+      const turn: VmiTurn = {
+        questionId: randomUUID(), questionText: generated.questionText, stage: generated.stage,
+        cvBased: generated.cvBased, askedAt: new Date(Date.now()),
+      };
+      session.turns.push(turn);
+      session.pendingNextQuestion = false;
+      delete session.lastAiError;
+      session.updatedAt = turn.askedAt!;
+      await this.repository.save(session);
+      return this.answerResult(session, prepared.acceptedAnswer, turn);
+    });
+  }
+
+  async finishSession(userId: string, id: string) {
+    return this.mutateSession(userId, id, async session => {
+      if (session.status !== VmiSessionStatus.IN_PROGRESS) throw new ConflictException('Session is not in progress.');
+      session.status = VmiSessionStatus.ENDED;
+      session.endedAt = new Date(Date.now());
+      session.updatedAt = session.endedAt;
+      session.pendingNextQuestion = false;
+      await this.repository.save(session);
+      return { id, status: session.status, completed: true, endedAt: session.endedAt };
+    });
+  }
+
+  private nextQuestionInput(session: VmiSession): GenerateNextQuestionInput {
+    const index = session.turns.length;
+    const stage = index === session.targetQuestionCount - 1 ? VmiStage.CLOSING : VmiStage.TECHNICAL;
+    const covered = session.turns.filter(t => t.stage === VmiStage.TECHNICAL && t.cvBased).length;
+    const remainingAfter = Math.max(0, session.targetQuestionCount - index - 2);
+    const required = Math.ceil((session.targetQuestionCount - 2) * 0.4);
+    return {
+      position: session.position, level: session.level, language: session.language,
+      targetQuestionCount: session.targetQuestionCount, cvSnapshot: structuredClone(session.cvSnapshot),
+      context: session.context!, questionPlan: structuredClone(session.questionPlan!),
+      transcript: structuredClone(session.turns), nextQuestionIndex: index, stage,
+      requireCvBased: !!session.cvSnapshot && stage === VmiStage.TECHNICAL &&
+        (!!session.questionPlan![index].cvBased || required - covered > remainingAfter),
+    };
+  }
+
+  private answerResult(session: Pick<VmiSession, 'id' | 'status'>,
+    acceptedAnswer: { questionId: string; elapsedSeconds: number; timedOut: boolean }, question?: VmiTurn) {
+    const completed = session.status !== VmiSessionStatus.IN_PROGRESS;
+    return {
+      id: session.id, status: completed ? VmiSessionStatus.ENDED : VmiSessionStatus.IN_PROGRESS,
+      completed, acceptedAnswer,
+      ...(question ? { question: {
+        questionId: question.questionId, questionText: question.questionText, stage: question.stage, askedAt: question.askedAt,
+      } } : {}),
+    };
+  }
+
+  private async ownedSession(userId: string, id: string): Promise<VmiSession> {
+    const session = await this.repository.findById(id);
+    if (!session || session.userId !== userId) throw new NotFoundException('Session not found.');
+    return session;
+  }
+
+  // Queue only short state mutations; do not hold this queue during next-question AI.
+  // This allows finish to run while AI is pending and prevents stale snapshots overwriting answers.
+  private async mutateSession<T>(userId: string, id: string, operation: (session: VmiSession) => Promise<T>): Promise<T> {
+    const previous = this.mutations.get(id) ?? Promise.resolve();
+    let release!: () => void;
+    const current = new Promise<void>(resolve => { release = resolve; });
+    const tail = previous.then(() => current);
+    this.mutations.set(id, tail);
+    await previous;
+    try { return await operation(await this.ownedSession(userId, id)); }
+    finally {
+      release();
+      if (this.mutations.get(id) === tail) this.mutations.delete(id);
+    }
+  }
+
+  private operationAiError(error: unknown, operation: 'NEXT_QUESTION' | 'REPORT'): HttpException {
+    const upstream = error instanceof HttpException ? error.getStatus() : 502;
+    const statusCode = upstream === 504 ? 504 : upstream === 503 || upstream === 429 ? 503 : 502;
+    const suffix = statusCode === 504 ? 'TIMEOUT' : statusCode === 503 ? 'UNAVAILABLE' : 'ERROR';
+    const body = {
+      statusCode, error: statusCode === 504 ? 'Gateway Timeout' : statusCode === 503 ? 'Service Unavailable' : 'Bad Gateway',
+      code: `VMI_${operation}_${suffix}`, message: 'AI processing failed; saved interview data is preserved.',
+      ...(operation === 'NEXT_QUESTION' ? { pendingNextQuestion: true } : { sessionStatus: VmiSessionStatus.REPORT_FAILED }),
+    };
+    return statusCode === 504 ? new GatewayTimeoutException(body) : statusCode === 503 ? new ServiceUnavailableException(body) : new BadGatewayException(body);
+  }
+
   // Matches the single-process scope of the temporary in-memory repository.
   private readonly startingSessions = new Set<string>();
 
@@ -52,6 +271,7 @@ export class VmiService {
       status: VmiSessionStatus.SETUP,
       targetQuestionCount: input.targetQuestionCount ?? 6,
       turns: [],
+      pendingNextQuestion: false,
       createdAt: now,
       updatedAt: now,
     };
@@ -115,7 +335,9 @@ export class VmiService {
       await this.repository.save({
         ...session,
         status: VmiSessionStatus.IN_PROGRESS,
-        turns: [question],
+        turns: [{ ...question, cvBased: initialized.openingQuestion.cvBased }],
+        context: initialized.context,
+        questionPlan: structuredClone(initialized.questionPlan),
         startedAt: now,
         updatedAt: now,
       });

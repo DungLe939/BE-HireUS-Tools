@@ -1,11 +1,11 @@
 openapi: 3.0.3
 info:
   title: Voice Mock Interview API
-  version: 0.2.0
+  version: 0.4.0
   description: |
-    Task 2: configuration, session creation and device-confirmed start.
+    Configuration, device-confirmed start, text interview and evaluation.
     FR-VMI-01, FR-VMI-02, FR-VMI-04, FR-VMI-05, FR-VMI-06, FR-VMI-10,
-    FR-VMI-23, FR-VMI-27 and NFR-VMI-03.
+    FR-VMI-14..20, FR-VMI-23, FR-VMI-27, FR-VMI-28 and NFR-VMI-03.
     Creation stores a SETUP session and a CV snapshot without calling AI.
     Start initializes AI using that snapshot. AI failure preserves SETUP and
     all saved data so that the owner can retry the same start endpoint.
@@ -172,8 +172,173 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AiError'
+  /vmi/sessions/{id}/answers:
+    post:
+      operationId: submitVmiAnswer
+      summary: Submit confirmed text and generate the next question (FR-VMI-14, FR-VMI-15).
+      description: |
+        Owner only. Requires IN_PROGRESS, no pending next question, and the current
+        unanswered questionId. Saves the answer before calling AI. elapsedSeconds
+        is measured from askedAt; strictly over 180 seconds sets timedOut=true
+        while still accepting the answer. A full interview has 5-8 questions:
+        one OPENING, 3-6 TECHNICAL, one CLOSING. The final answer changes the
+        session to ENDED and returns completed=true for the client evaluation step.
+        AI failure preserves the answer and pendingNextQuestion=true (FR-VMI-27).
+        Duplicate/stale answers and concurrent mutations return 409.
+        Internal context and questionPlan are never included in responses.
+      parameters:
+        - $ref: '#/components/parameters/TestUserId'
+        - $ref: '#/components/parameters/SessionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [questionId, answerText]
+              properties:
+                questionId:
+                  type: string
+                  format: uuid
+                answerText:
+                  type: string
+                  minLength: 1
+                  maxLength: 20000
+                  pattern: '\S'
+      responses:
+        '200':
+          description: Saved answer and next question, or completed interview.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnswerResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/SessionNotFound'
+        '409':
+          $ref: '#/components/responses/SessionConflict'
+        '502':
+          $ref: '#/components/responses/NextQuestionFailed'
+        '503':
+          $ref: '#/components/responses/NextQuestionFailed'
+        '504':
+          $ref: '#/components/responses/NextQuestionFailed'
+  /vmi/sessions/{id}/finish:
+    post:
+      operationId: finishVmiSession
+      summary: End an IN_PROGRESS interview early (FR-VMI-16).
+      description: |
+        Owner only. Preserves all turns, sets ENDED and clears pendingNextQuestion.
+        Allowed with zero answers and while next-question generation is pending.
+        A late AI response cannot add a question or reopen an ended session.
+        Evaluation is a separate step; an empty transcript cannot be evaluated.
+      parameters:
+        - $ref: '#/components/parameters/TestUserId'
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: Ended interview.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [id, status, completed, endedAt]
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  status:
+                    type: string
+                    enum: [ENDED]
+                  completed:
+                    type: boolean
+                    enum: [true]
+                  endedAt:
+                    type: string
+                    format: date-time
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/SessionNotFound'
+        '409':
+          $ref: '#/components/responses/SessionConflict'
+  /vmi/sessions/{id}/evaluate:
+    post:
+      operationId: evaluateVmiSession
+      summary: Evaluate the complete transcript of an ENDED interview (FR-VMI-17..20).
+      description: |
+        Owner only. Requires ENDED and at least one answered question. Does not run
+        automatically when the final answer is submitted. Concurrent evaluations,
+        EVALUATED and REPORT_FAILED return 409; retry endpoints are not implemented.
+        AI returns only the three component scores (0-100) and narrative feedback.
+        Backend computes technical*0.5 + problemSolving*0.3 + communication*0.2.
+        Classify using the unrounded score: RED <50, YELLOW [50,75), GREEN >=75.
+        Store the unrounded total; round overallScore to two decimals only in API
+        responses. Labels are not probabilities of hiring. No color hex is returned.
+        AI failure preserves every turn, saves REPORT_FAILED and no report/zero score.
+      parameters:
+        - $ref: '#/components/parameters/TestUserId'
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: Persisted evaluation and full transcript.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/SessionNotFound'
+        '409':
+          $ref: '#/components/responses/SessionConflict'
+        '422':
+          description: No answered questions; insufficient evaluation data. Session remains ENDED with no report.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HttpError'
+        '502':
+          $ref: '#/components/responses/ReportFailed'
+        '503':
+          $ref: '#/components/responses/ReportFailed'
+        '504':
+          $ref: '#/components/responses/ReportFailed'
+  /vmi/sessions/{id}/report:
+    get:
+      operationId: getVmiReport
+      summary: Read the owner's stored report and complete transcript.
+      parameters:
+        - $ref: '#/components/parameters/TestUserId'
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: Existing report, without regenerating it or calling AI.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          description: Session missing, foreign, or report not yet available.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HttpError'
 components:
   parameters:
+    SessionId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Session UUID v4.
     TestUserId:
       name: x-mock-user-id
       in: header
@@ -182,6 +347,55 @@ components:
       schema:
         type: string
   responses:
+    ReportFailed:
+      description: |
+        AI failure (502), unavailable (503), or timeout (504).
+        Session is REPORT_FAILED; transcript remains intact and no report is saved.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/HttpError'
+              - type: object
+                required: [code, sessionStatus]
+                properties:
+                  code:
+                    type: string
+                    enum: [VMI_REPORT_ERROR, VMI_REPORT_UNAVAILABLE, VMI_REPORT_TIMEOUT]
+                  sessionStatus:
+                    type: string
+                    enum: [REPORT_FAILED]
+    SessionNotFound:
+      description: Session missing or owned by another user.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/HttpError'
+    SessionConflict:
+      description: Invalid session/question state, pending question, or concurrent mutation.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/HttpError'
+    NextQuestionFailed:
+      description: |
+        AI error (502), unavailable (503), or timeout (504). The answer is saved;
+        session remains IN_PROGRESS with pendingNextQuestion=true. Do not resubmit
+        the answer. The owner may finish the session. Retry endpoints are not implemented.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/HttpError'
+              - type: object
+                required: [code, pendingNextQuestion]
+                properties:
+                  code:
+                    type: string
+                    enum: [VMI_NEXT_QUESTION_ERROR, VMI_NEXT_QUESTION_UNAVAILABLE, VMI_NEXT_QUESTION_TIMEOUT]
+                  pendingNextQuestion:
+                    type: boolean
+                    enum: [true]
     BadRequest:
       description: Invalid DTO, unexpected property, invalid UUID, or deviceReady not exactly true.
       content:
@@ -189,6 +403,144 @@ components:
           schema:
             $ref: '#/components/schemas/HttpError'
   schemas:
+    ReportResult:
+      type: object
+      additionalProperties: false
+      required: [id, status, language, transcript, report]
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [EVALUATED]
+        language:
+          $ref: '#/components/schemas/Language'
+        transcript:
+          type: array
+          items:
+            $ref: '#/components/schemas/TranscriptTurn'
+        report:
+          $ref: '#/components/schemas/Report'
+    TranscriptTurn:
+      type: object
+      additionalProperties: false
+      required: [questionId, questionText, stage, askedAt]
+      properties:
+        questionId:
+          type: string
+          format: uuid
+        questionText:
+          type: string
+        stage:
+          type: string
+          enum: [OPENING, TECHNICAL, CLOSING]
+        askedAt:
+          type: string
+          format: date-time
+        answerText:
+          type: string
+        answeredAt:
+          type: string
+          format: date-time
+        elapsedSeconds:
+          type: number
+          minimum: 0
+        timedOut:
+          type: boolean
+    Report:
+      type: object
+      additionalProperties: false
+      required: [technical, problemSolving, communication, overallScore, band, strengths, knowledgeGaps, suggestedAnswers, reviewTopics, recommendation, disclaimer, createdAt]
+      properties:
+        technical:
+          type: number
+          minimum: 0
+          maximum: 100
+        problemSolving:
+          type: number
+          minimum: 0
+          maximum: 100
+        communication:
+          type: number
+          minimum: 0
+          maximum: 100
+        overallScore:
+          type: number
+          minimum: 0
+          maximum: 100
+          description: Rounded to two decimal places for display; band uses the unrounded total.
+        band:
+          type: string
+          enum: [RED, YELLOW, GREEN]
+        strengths:
+          type: array
+          items:
+            type: string
+        knowledgeGaps:
+          type: array
+          items:
+            type: string
+        suggestedAnswers:
+          type: array
+          items:
+            type: string
+        reviewTopics:
+          type: array
+          items:
+            type: string
+        recommendation:
+          type: string
+        disclaimer:
+          type: string
+          description: Localized training-only disclaimer, explicitly not a hiring probability.
+        createdAt:
+          type: string
+          format: date-time
+    InterviewQuestion:
+      type: object
+      additionalProperties: false
+      required: [questionId, questionText, stage, askedAt]
+      properties:
+        questionId:
+          type: string
+          format: uuid
+        questionText:
+          type: string
+        stage:
+          type: string
+          enum: [OPENING, TECHNICAL, CLOSING]
+        askedAt:
+          type: string
+          format: date-time
+    AnswerResult:
+      type: object
+      additionalProperties: false
+      required: [id, status, completed, acceptedAnswer]
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [IN_PROGRESS, ENDED]
+        completed:
+          type: boolean
+        acceptedAnswer:
+          type: object
+          additionalProperties: false
+          required: [questionId, elapsedSeconds, timedOut]
+          properties:
+            questionId:
+              type: string
+              format: uuid
+            elapsedSeconds:
+              type: number
+              minimum: 0
+            timedOut:
+              type: boolean
+        question:
+          $ref: '#/components/schemas/InterviewQuestion'
     Position:
       type: string
       enum: [FRONTEND, BACKEND, FULLSTACK, MOBILE, AI_DATA]
