@@ -3,3 +3,8 @@ dist/
 coverage/
 npm-debug.log*
 *.tsbuildinfo
+
+# env
+.env
+.env.*
+!.env.example
