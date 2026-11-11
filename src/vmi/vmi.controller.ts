@@ -11,6 +11,24 @@ import { SubmitVmiAnswerDto } from './dto/submit-vmi-answer.dto';
 export class VmiController {
   constructor(private readonly service: VmiService) {}
 
+  @Post('sessions/:id/next-question/retry')
+  @HttpCode(HttpStatus.OK)
+  retryNextQuestion(
+    @CurrentUser() userId: string,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+  ) {
+    return this.service.retryNextQuestion(userId, id);
+  }
+
+  @Post('sessions/:id/report/retry')
+  @HttpCode(HttpStatus.OK)
+  retryReport(
+    @CurrentUser() userId: string,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+  ) {
+    return this.service.retryReport(userId, id);
+  }
+
   @Post('sessions/:id/evaluate')
   @HttpCode(HttpStatus.OK)
   evaluateSession(

@@ -27,11 +27,47 @@ import { calculateVmiScore } from './utils/vmi-scoring.util';
 
 @Injectable()
 export class VmiService {
+  async retryNextQuestion(userId: string, id: string) {
+    const prepared = await this.mutateSession(userId, id, async session => {
+      if (session.status !== VmiSessionStatus.IN_PROGRESS || !session.pendingNextQuestion || this.generatingSessions.has(id)) {
+        throw new ConflictException('Session is not ready to retry the next question.');
+      }
+      const lastTurn = session.turns.at(-1);
+      if (!lastTurn || session.turns.some(turn => !turn.answerText?.trim()) || session.turns.length > session.targetQuestionCount) {
+        throw new ConflictException('Saved answers are not ready for next-question recovery.');
+      }
+      if (session.turns.length === session.targetQuestionCount) {
+        session.status = VmiSessionStatus.ENDED;
+        session.pendingNextQuestion = false;
+        delete session.lastAiError;
+        session.endedAt = new Date(Date.now());
+        session.updatedAt = session.endedAt;
+        await this.repository.save(session);
+      } else {
+        this.generatingSessions.add(id);
+      }
+      return { session, acceptedAnswer: {
+        questionId: lastTurn.questionId, elapsedSeconds: lastTurn.elapsedSeconds ?? 0, timedOut: lastTurn.timedOut ?? false,
+      } };
+    });
+    if (prepared.session.status === VmiSessionStatus.ENDED) return this.answerResult(prepared.session, prepared.acceptedAnswer);
+    return this.generateAndStoreNextQuestion(userId, id, prepared);
+  }
+
+  async retryReport(userId: string, id: string) {
+    return this.evaluateStoredSession(userId, id, VmiSessionStatus.REPORT_FAILED);
+  }
   private readonly evaluatingSessions = new Set<string>();
 
   async evaluateSession(userId: string, id: string) {
+    return this.evaluateStoredSession(userId, id, VmiSessionStatus.ENDED);
+  }
+
+  private async evaluateStoredSession(userId: string, id: string,
+    requiredStatus: VmiSessionStatus.ENDED | VmiSessionStatus.REPORT_FAILED) {
     const session = await this.mutateSession(userId, id, async current => {
-      if (current.status !== VmiSessionStatus.ENDED || this.evaluatingSessions.has(id)) {
+      if (current.status !== requiredStatus || this.evaluatingSessions.has(id) ||
+        (requiredStatus === VmiSessionStatus.REPORT_FAILED && this.generatingSessions.has(id))) {
         throw new ConflictException('Session is not ready for evaluation.');
       }
       if (!current.turns.some(turn => turn.answerText?.trim())) {
@@ -97,6 +133,7 @@ export class VmiService {
 
   private readonly logger = new Logger(VmiService.name);
   private readonly mutations = new Map<string, Promise<void>>();
+  private readonly generatingSessions = new Set<string>();
 
   async submitAnswer(userId: string, id: string, input: { questionId: string; answerText: string }) {
     const prepared = await this.mutateSession(userId, id, async session => {
@@ -121,6 +158,7 @@ export class VmiService {
         session.pendingNextQuestion = true;
       }
       await this.repository.save(session);
+      if (session.pendingNextQuestion) this.generatingSessions.add(id);
       return { session, acceptedAnswer: {
         questionId: turn.questionId, elapsedSeconds: turn.elapsedSeconds, timedOut: turn.timedOut,
       } };
@@ -129,43 +167,54 @@ export class VmiService {
       return this.answerResult(prepared.session, prepared.acceptedAnswer);
     }
 
-    let generated: VmiPlannedQuestion;
-    const generationInput = this.nextQuestionInput(prepared.session);
-    const began = performance.now();
+    return this.generateAndStoreNextQuestion(userId, id, prepared);
+  }
+
+  private async generateAndStoreNextQuestion(userId: string, id: string, prepared: {
+    session: VmiSession;
+    acceptedAnswer: { questionId: string; elapsedSeconds: number; timedOut: boolean };
+  }) {
     try {
-      generated = await this.ai.generateNextQuestion(generationInput);
-      if (generated.stage !== generationInput.stage || !generated.questionText?.trim() ||
-        typeof generated.cvBased !== 'boolean' || (generationInput.requireCvBased && !generated.cvBased) ||
-        (!prepared.session.cvSnapshot && generated.cvBased)) {
-        throw new BadGatewayException();
+      let generated: VmiPlannedQuestion;
+      const generationInput = this.nextQuestionInput(prepared.session);
+      const began = performance.now();
+      try {
+        generated = await this.ai.generateNextQuestion(generationInput);
+        if (generated.stage !== generationInput.stage || !generated.questionText?.trim() ||
+          typeof generated.cvBased !== 'boolean' || (generationInput.requireCvBased && !generated.cvBased) ||
+          (!prepared.session.cvSnapshot && generated.cvBased)) {
+          throw new BadGatewayException();
+        }
+      } catch (error: unknown) {
+        const failure = this.operationAiError(error, 'NEXT_QUESTION');
+        const ended = await this.mutateSession(userId, id, async session => {
+          if (session.status !== VmiSessionStatus.IN_PROGRESS) return true;
+          session.lastAiError = (failure.getResponse() as { code: string }).code;
+          session.updatedAt = new Date(Date.now());
+          await this.repository.save(session);
+          return false;
+        });
+        if (ended) return this.answerResult({ status: VmiSessionStatus.ENDED, id }, prepared.acceptedAnswer);
+        throw failure;
+      } finally {
+        this.logger.log({ event: 'generateNextQuestion', durationMs: Number((performance.now() - began).toFixed(3)) });
       }
-    } catch (error: unknown) {
-      const failure = this.operationAiError(error, 'NEXT_QUESTION');
-      const ended = await this.mutateSession(userId, id, async session => {
-        if (session.status !== VmiSessionStatus.IN_PROGRESS) return true;
-        session.lastAiError = (failure.getResponse() as { code: string }).code;
-        session.updatedAt = new Date(Date.now());
+      return await this.mutateSession(userId, id, async session => {
+        if (session.status !== VmiSessionStatus.IN_PROGRESS) return this.answerResult(session, prepared.acceptedAnswer);
+        const turn: VmiTurn = {
+          questionId: randomUUID(), questionText: generated.questionText, stage: generated.stage,
+          cvBased: generated.cvBased, askedAt: new Date(Date.now()),
+        };
+        session.turns.push(turn);
+        session.pendingNextQuestion = false;
+        delete session.lastAiError;
+        session.updatedAt = turn.askedAt!;
         await this.repository.save(session);
-        return false;
+        return this.answerResult(session, prepared.acceptedAnswer, turn);
       });
-      if (ended) return this.answerResult({ status: VmiSessionStatus.ENDED, id }, prepared.acceptedAnswer);
-      throw failure;
     } finally {
-      this.logger.log({ event: 'generateNextQuestion', durationMs: Number((performance.now() - began).toFixed(3)) });
+      this.generatingSessions.delete(id);
     }
-    return this.mutateSession(userId, id, async session => {
-      if (session.status !== VmiSessionStatus.IN_PROGRESS) return this.answerResult(session, prepared.acceptedAnswer);
-      const turn: VmiTurn = {
-        questionId: randomUUID(), questionText: generated.questionText, stage: generated.stage,
-        cvBased: generated.cvBased, askedAt: new Date(Date.now()),
-      };
-      session.turns.push(turn);
-      session.pendingNextQuestion = false;
-      delete session.lastAiError;
-      session.updatedAt = turn.askedAt!;
-      await this.repository.save(session);
-      return this.answerResult(session, prepared.acceptedAnswer, turn);
-    });
   }
 
   async finishSession(userId: string, id: string) {

@@ -1,9 +1,9 @@
 openapi: 3.0.3
 info:
   title: Voice Mock Interview API
-  version: 0.4.0
+  version: 0.6.0
   description: |
-    Configuration, device-confirmed start, text interview and evaluation.
+    Configuration, device-confirmed start, text interview, evaluation and recovery.
     FR-VMI-01, FR-VMI-02, FR-VMI-04, FR-VMI-05, FR-VMI-06, FR-VMI-10,
     FR-VMI-14..20, FR-VMI-23, FR-VMI-27, FR-VMI-28 and NFR-VMI-03.
     Creation stores a SETUP session and a CV snapshot without calling AI.
@@ -272,7 +272,8 @@ paths:
       description: |
         Owner only. Requires ENDED and at least one answered question. Does not run
         automatically when the final answer is submitted. Concurrent evaluations,
-        EVALUATED and REPORT_FAILED return 409; retry endpoints are not implemented.
+        EVALUATED and REPORT_FAILED return 409. Recover a REPORT_FAILED session
+        through POST /vmi/sessions/{id}/report/retry; /evaluate remains ENDED-only.
         AI returns only the three component scores (0-100) and narrative feedback.
         Backend computes technical*0.5 + problemSolving*0.3 + communication*0.2.
         Classify using the unrounded score: RED <50, YELLOW [50,75), GREEN >=75.
@@ -329,6 +330,88 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HttpError'
+  /vmi/sessions/{id}/next-question/retry:
+    post:
+      operationId: retryVmiNextQuestion
+      summary: Recover next-question generation from saved answers (FR-VMI-27).
+      description: |
+        Owner only. Requires IN_PROGRESS, pendingNextQuestion=true, and saved
+        answers for all existing turns. Reuses the saved context, CV snapshot,
+        questionPlan and transcript without accepting or resubmitting an answer.
+        Only one generation may run at a time, including generation initiated
+        by /answers. A concurrent request returns 409 without calling AI.
+        Success adds exactly one question and clears pendingNextQuestion/lastAiError.
+        Repeated requests after success return 409 and cannot add another question.
+        A recovered CLOSING question still awaits its answer, like /answers.
+        If all target questions already have answers, finish with completed=true
+        and ENDED without calling AI or adding any question beyond the target.
+        A late AI result cannot reopen a session ended by /finish.
+        On AI error, keep every saved turn and pendingNextQuestion=true; retry is safe.
+      parameters:
+        - $ref: '#/components/parameters/TestUserId'
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: Recovered question or already answered final turn; acceptedAnswer describes the last saved answer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnswerResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/SessionNotFound'
+        '409':
+          $ref: '#/components/responses/SessionConflict'
+        '502':
+          $ref: '#/components/responses/NextQuestionFailed'
+        '503':
+          $ref: '#/components/responses/NextQuestionFailed'
+        '504':
+          $ref: '#/components/responses/NextQuestionFailed'
+  /vmi/sessions/{id}/report/retry:
+    post:
+      operationId: retryVmiReport
+      summary: Regenerate a failed report from the preserved transcript (FR-VMI-28, NFR-VMI-04).
+      description: |
+        Owner only. Requires REPORT_FAILED and at least one saved answer.
+        Uses exactly the same evaluation, score calculation, classification,
+        response rounding and disclaimer logic as /evaluate. No new interview
+        or answers are needed. /evaluate continues to accept ENDED only.
+        Success sets EVALUATED and clears lastAiError. Concurrent retry requests
+        and repeated requests after success return 409 without another AI call.
+        A next-question generation still in flight after /finish also blocks
+        report retry until it settles; recovery operations for one session do not overlap.
+        On error remain REPORT_FAILED, preserving the complete transcript and
+        saving no report or placeholder zero score. No request body is required.
+      parameters:
+        - $ref: '#/components/parameters/TestUserId'
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: Recovered report and unchanged full transcript.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/SessionNotFound'
+        '409':
+          $ref: '#/components/responses/SessionConflict'
+        '422':
+          description: Insufficient saved answer data; no report is generated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HttpError'
+        '502':
+          $ref: '#/components/responses/ReportFailed'
+        '503':
+          $ref: '#/components/responses/ReportFailed'
+        '504':
+          $ref: '#/components/responses/ReportFailed'
 components:
   parameters:
     SessionId:
@@ -381,7 +464,8 @@ components:
       description: |
         AI error (502), unavailable (503), or timeout (504). The answer is saved;
         session remains IN_PROGRESS with pendingNextQuestion=true. Do not resubmit
-        the answer. The owner may finish the session. Retry endpoints are not implemented.
+        the answer. The owner may retry POST /vmi/sessions/{id}/next-question/retry
+        or finish the session.
       content:
         application/json:
           schema:
