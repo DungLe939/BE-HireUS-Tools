@@ -1,0 +1,289 @@
+openapi: 3.0.3
+info:
+  title: Voice Mock Interview API
+  version: 0.2.0
+  description: |
+    Task 2: configuration, session creation and device-confirmed start.
+    FR-VMI-01, FR-VMI-02, FR-VMI-04, FR-VMI-05, FR-VMI-06, FR-VMI-10,
+    FR-VMI-23, FR-VMI-27 and NFR-VMI-03.
+    Creation stores a SETUP session and a CV snapshot without calling AI.
+    Start initializes AI using that snapshot. AI failure preserves SETUP and
+    all saved data so that the owner can retry the same start endpoint.
+    Storage is temporary and is lost on server restart.
+    Authentication is temporary: only NODE_ENV=test honors x-mock-user-id;
+    every other environment uses the fixed mock identity. JWT is not implemented.
+paths:
+  /vmi/options:
+    get:
+      operationId: getVmiOptions
+      summary: List supported interview settings (FR-VMI-01, FR-VMI-02).
+      parameters:
+        - $ref: '#/components/parameters/TestUserId'
+      responses:
+        '200':
+          description: Available settings and question-count bounds.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [positions, levels, languages, targetQuestionCount]
+                properties:
+                  positions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Position'
+                  levels:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Level'
+                  languages:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Language'
+                  targetQuestionCount:
+                    type: object
+                    additionalProperties: false
+                    required: [min, max, default]
+                    properties:
+                      min:
+                        type: integer
+                        enum: [5]
+                      max:
+                        type: integer
+                        enum: [8]
+                      default:
+                        type: integer
+                        enum: [6]
+  /vmi/sessions:
+    post:
+      operationId: createVmiSession
+      summary: Create a SETUP session with optional CV (FR-VMI-04, FR-VMI-06, FR-VMI-23).
+      description: |
+        Defaults to six questions. No AI request is made here.
+        If cvId is supplied, fetch the owner's CV and preserve a detached snapshot.
+        EmptyCvProvider currently returns 404 for every supplied cvId.
+        Internal context, question plans, userId and CV contents are not exposed.
+      parameters:
+        - $ref: '#/components/parameters/TestUserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSession'
+      responses:
+        '201':
+          description: Saved configuration, ready for the device check.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SetupSession'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          description: The supplied CV does not exist or is not available to this user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HttpError'
+  /vmi/sessions/{id}/start:
+    post:
+      operationId: startVmiSession
+      summary: Confirm device readiness and initialize AI (FR-VMI-05, FR-VMI-10).
+      description: |
+        Only the owner may start a SETUP session. Missing and foreign sessions both
+        return 404. Concurrent or repeated starts return 409. The saved CV snapshot
+        is used even if the original CV was edited after creation.
+        Successful initialization stores the opening turn, sets askedAt/startedAt,
+        and transitions to IN_PROGRESS. Failure keeps SETUP, its snapshot and turns
+        unchanged (FR-VMI-27); retry with the same request after the failure.
+      parameters:
+        - $ref: '#/components/parameters/TestUserId'
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Version 4 UUID returned when creating the session.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [deviceReady]
+              properties:
+                deviceReady:
+                  type: boolean
+                  enum: [true]
+      responses:
+        '200':
+          description: Started session and its first question.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [id, status, startedAt, question]
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  status:
+                    type: string
+                    enum: [IN_PROGRESS]
+                  startedAt:
+                    type: string
+                    format: date-time
+                  question:
+                    $ref: '#/components/schemas/OpeningQuestion'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          description: Session missing or owned by another user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HttpError'
+        '409':
+          description: Session is not in SETUP or another start request is running.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HttpError'
+        '502':
+          description: AI initialization failed. Code VMI_AI_ERROR; retry start.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AiError'
+        '503':
+          description: AI unavailable. Code VMI_AI_UNAVAILABLE; retry start.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AiError'
+        '504':
+          description: AI timeout. Code VMI_AI_TIMEOUT; retry start.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AiError'
+components:
+  parameters:
+    TestUserId:
+      name: x-mock-user-id
+      in: header
+      required: false
+      description: Test identity override; ignored outside NODE_ENV=test. Omitted/blank uses the fixed mock identity.
+      schema:
+        type: string
+  responses:
+    BadRequest:
+      description: Invalid DTO, unexpected property, invalid UUID, or deviceReady not exactly true.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/HttpError'
+  schemas:
+    Position:
+      type: string
+      enum: [FRONTEND, BACKEND, FULLSTACK, MOBILE, AI_DATA]
+    Level:
+      type: string
+      enum: [INTERN, FRESHER]
+    Language:
+      type: string
+      enum: [vi, en]
+    CreateSession:
+      type: object
+      additionalProperties: false
+      required: [position, level, language]
+      properties:
+        position:
+          $ref: '#/components/schemas/Position'
+        level:
+          $ref: '#/components/schemas/Level'
+        language:
+          $ref: '#/components/schemas/Language'
+        cvId:
+          type: string
+          minLength: 1
+          maxLength: 200
+          pattern: '^\S+$'
+        targetQuestionCount:
+          type: integer
+          minimum: 5
+          maximum: 8
+          default: 6
+    SetupSession:
+      type: object
+      additionalProperties: false
+      required: [id, position, level, language, status, targetQuestionCount, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        position:
+          $ref: '#/components/schemas/Position'
+        level:
+          $ref: '#/components/schemas/Level'
+        language:
+          $ref: '#/components/schemas/Language'
+        status:
+          type: string
+          enum: [SETUP]
+        targetQuestionCount:
+          type: integer
+          minimum: 5
+          maximum: 8
+        cvId:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    OpeningQuestion:
+      type: object
+      additionalProperties: false
+      required: [questionId, questionText, stage, askedAt]
+      properties:
+        questionId:
+          type: string
+          format: uuid
+        questionText:
+          type: string
+        stage:
+          type: string
+          enum: [OPENING]
+        askedAt:
+          type: string
+          format: date-time
+    HttpError:
+      type: object
+      required: [statusCode, message, error]
+      properties:
+        statusCode:
+          type: integer
+        message:
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: string
+        error:
+          type: string
+    AiError:
+      allOf:
+        - $ref: '#/components/schemas/HttpError'
+        - type: object
+          required: [code]
+          properties:
+            code:
+              type: string
+              enum: [VMI_AI_ERROR, VMI_AI_UNAVAILABLE, VMI_AI_TIMEOUT]
