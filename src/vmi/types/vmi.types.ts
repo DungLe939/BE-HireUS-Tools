@@ -35,6 +35,27 @@ export interface CvSummary {
   summary: string;
 }
 
+export interface InitInterviewContextInput {
+  position: VmiPosition;
+  level: VmiLevel;
+  language: VmiLanguage;
+  cvSnapshot?: CvSummary;
+  /** Defaults to six questions when omitted. */
+  targetQuestionCount?: number;
+}
+
+export interface VmiPlannedQuestion {
+  stage: VmiStage;
+  questionText: string;
+  cvBased: boolean;
+}
+
+export interface InitInterviewContextOutput {
+  context: string;
+  questionPlan: VmiPlannedQuestion[];
+  openingQuestion: VmiPlannedQuestion;
+}
+
 export interface VmiTurn {
   questionId: string;
   questionText: string;
