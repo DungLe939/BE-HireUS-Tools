@@ -352,6 +352,54 @@ describe('GeminiAiProvider.evaluateInterview', () => {
     expect(sent.systemInstruction.parts[0].text).toContain('0-100');
   });
   it.each([
+    [VmiLanguage.VI, false], [VmiLanguage.EN, false],
+    [VmiLanguage.VI, true], [VmiLanguage.EN, true],
+  ] as const)('requires evidence-based scoring and conditional CV feedback (%s, CV=%s)', async (language, withCv) => {
+    fetchMock.mockResolvedValue(Response.json(envelope(JSON.stringify(assessment))));
+    await expect(provider.evaluateInterview({
+      ...evalInput, language,
+      ...(withCv ? { cvSnapshot: { id: 'cv-test', summary: 'A sample backend project' } } : {}),
+    })).resolves.toEqual(assessment);
+
+    const sent = JSON.parse(fetchMock.mock.calls[0][1]!.body as string);
+    const prompt: string = sent.systemInstruction.parts[0].text;
+    expect(prompt).toContain(language === VmiLanguage.VI ? 'Vietnamese (vi)' : 'English (en)');
+    expect(prompt).toContain('only from evidence in the transcript');
+    expect(prompt).toContain('below 50');
+    expect(prompt).toContain('insufficient evidence');
+    expect(prompt).toContain('knowledgeGaps');
+    expect(prompt).toContain('recommendation guidance');
+    expect(prompt).toContain('OPENING-only');
+    expect(prompt).toContain('Short, vague or technically incorrect answers must not receive high scores');
+    expect(prompt).toContain('high scores require concrete');
+    if (withCv) {
+      expect(prompt).toContain('A non-empty CV summary is supplied');
+      expect(prompt).not.toContain('Do not mention CV');
+    } else {
+      expect(prompt).toContain('Do not mention CV');
+      expect(prompt).toContain('projects in a CV');
+      expect(prompt).toContain('profile or resume');
+    }
+
+    const schema = sent.generationConfig.responseFormat.text.schema;
+    expect(schema.additionalProperties).toBe(false);
+    expect(Object.keys(schema.properties).sort()).toEqual([
+      'communication', 'knowledgeGaps', 'problemSolving', 'reviewTopics',
+      'strengths', 'suggestedAnswers', 'technical',
+    ]);
+    expect(schema.required).toEqual([
+      'technical', 'problemSolving', 'communication', 'strengths',
+      'knowledgeGaps', 'suggestedAnswers', 'reviewTopics',
+    ]);
+  });
+  it.each(['', '   '])('treats an empty CV summary as unavailable for feedback (%#)', async summary => {
+    fetchMock.mockResolvedValue(Response.json(envelope(JSON.stringify(assessment))));
+    await provider.evaluateInterview({ ...evalInput, cvSnapshot: { id: 'cv-test', summary } });
+    const sent = JSON.parse(fetchMock.mock.calls[0][1]!.body as string);
+    expect(sent.systemInstruction.parts[0].text).toContain('Do not mention CV');
+    expect(sent.systemInstruction.parts[0].text).not.toContain('A non-empty CV summary is supplied');
+  });
+  it.each([
     { ...assessment, technical: -1 }, { ...assessment, communication: 101 },
     { ...assessment, problemSolving: '70' }, { ...assessment, technical: null },
     { ...assessment, strengths: 'text' }, { ...assessment, knowledgeGaps: [1] },
