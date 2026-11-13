@@ -1,0 +1,659 @@
+{
+  "source": "Synthetic espeak Vietnamese, whole repeated utterances plus silence; no human accuracy claim",
+  "beforeCleanup": {
+    "audioSource": "espeak-ng Vietnamese; repeated speech plus silence, NOT a human accuracy benchmark",
+    "reference": "Tôi muốn luyện tập phỏng vấn kỹ thuật phần mềm.",
+    "python": "3.14.7",
+    "visibleCpuCount": 16,
+    "cpuThreads": 4,
+    "serviceSha256": "e726d5e0a584c12f86328aba83b639b4cc5296258d0d6b8c089cecea9f2591ac",
+    "results": [
+      {
+        "model": "small",
+        "profile": "fast",
+        "computeType": "int8",
+        "flags": {
+          "WHISPER_BEAM_SIZE": "1",
+          "WHISPER_VAD_FILTER": "true",
+          "WHISPER_CONDITION_ON_PREVIOUS_TEXT": "false"
+        },
+        "audioSeconds": 5,
+        "runs": [
+          {
+            "status": 200,
+            "latencyMs": 1223.182,
+            "wer": 1.0,
+            "referenceWords": 10,
+            "substitutions": 10,
+            "deletions": 0,
+            "insertions": 0
+          },
+          {
+            "status": 200,
+            "latencyMs": 1278.783,
+            "wer": 1.0,
+            "referenceWords": 10,
+            "substitutions": 10,
+            "deletions": 0,
+            "insertions": 0
+          },
+          {
+            "status": 200,
+            "latencyMs": 1171.447,
+            "wer": 1.0,
+            "referenceWords": 10,
+            "substitutions": 10,
+            "deletions": 0,
+            "insertions": 0
+          }
+        ],
+        "meanMs": 1224.471,
+        "maxMs": 1278.783,
+        "allSuccessful": true
+      },
+      {
+        "model": "small",
+        "profile": "fast",
+        "computeType": "int8",
+        "flags": {
+          "WHISPER_BEAM_SIZE": "1",
+          "WHISPER_VAD_FILTER": "true",
+          "WHISPER_CONDITION_ON_PREVIOUS_TEXT": "false"
+        },
+        "audioSeconds": 15,
+        "runs": [
+          {
+            "status": 200,
+            "latencyMs": 1282.408,
+            "wer": 0.933333,
+            "referenceWords": 30,
+            "substitutions": 8,
+            "deletions": 20,
+            "insertions": 0
+          },
+          {
+            "status": 200,
+            "latencyMs": 1295.695,
+            "wer": 0.933333,
+            "referenceWords": 30,
+            "substitutions": 8,
+            "deletions": 20,
+            "insertions": 0
+          },
+          {
+            "status": 200,
+            "latencyMs": 1315.837,
+            "wer": 0.933333,
+            "referenceWords": 30,
+            "substitutions": 8,
+            "deletions": 20,
+            "insertions": 0
+          }
+        ],
+        "meanMs": 1297.98,
+        "maxMs": 1315.837,
+        "allSuccessful": true
+      },
+      {
+        "model": "small",
+        "profile": "fast",
+        "computeType": "int8",
+        "flags": {
+          "WHISPER_BEAM_SIZE": "1",
+          "WHISPER_VAD_FILTER": "true",
+          "WHISPER_CONDITION_ON_PREVIOUS_TEXT": "false"
+        },
+        "audioSeconds": 30,
+        "runs": [
+          {
+            "status": 200,
+            "latencyMs": 1340.816,
+            "wer": 0.966667,
+            "referenceWords": 60,
+            "substitutions": 8,
+            "deletions": 50,
+            "insertions": 0
+          },
+          {
+            "status": 200,
+            "latencyMs": 1451.012,
+            "wer": 0.966667,
+            "referenceWords": 60,
+            "substitutions": 8,
+            "deletions": 50,
+            "insertions": 0
+          },
+          {
+            "status": 200,
+            "latencyMs": 1210.921,
+            "wer": 0.966667,
+            "referenceWords": 60,
+            "substitutions": 8,
+            "deletions": 50,
+            "insertions": 0
+          }
+        ],
+        "meanMs": 1334.25,
+        "maxMs": 1451.012,
+        "allSuccessful": true
+      },
+      {
+        "model": "small",
+        "profile": "fast",
+        "computeType": "int8",
+        "flags": {
+          "WHISPER_BEAM_SIZE": "1",
+          "WHISPER_VAD_FILTER": "true",
+          "WHISPER_CONDITION_ON_PREVIOUS_TEXT": "false"
+        },
+        "audioSeconds": 60,
+        "runs": [
+          {
+            "status": 422,
+            "latencyMs": 9403.413
+          },
+          {
+            "status": 200,
+            "latencyMs": 6949.912,
+            "wer": 0.95,
+            "referenceWords": 120,
+            "substitutions": 24,
+            "deletions": 90,
+            "insertions": 0
+          },
+          {
+            "status": 200,
+            "latencyMs": 6822.204,
+            "wer": 0.966667,
+            "referenceWords": 120,
+            "substitutions": 26,
+            "deletions": 90,
+            "insertions": 0
+          }
+        ],
+        "meanMs": 7725.176,
+        "maxMs": 9403.413,
+        "allSuccessful": false
+      },
+      {
+        "model": "small",
+        "profile": "comparison",
+        "computeType": "int8",
+        "flags": {
+          "WHISPER_BEAM_SIZE": "5",
+          "WHISPER_VAD_FILTER": "false",
+          "WHISPER_CONDITION_ON_PREVIOUS_TEXT": "true"
+        },
+        "audioSeconds": 15,
+        "runs": [
+          {
+            "status": 200,
+            "latencyMs": 1322.682,
+            "wer": 0.9,
+            "referenceWords": 30,
+            "substitutions": 7,
+            "deletions": 20,
+            "insertions": 0
+          },
+          {
+            "status": 200,
+            "latencyMs": 1326.687,
+            "wer": 0.9,
+            "referenceWords": 30,
+            "substitutions": 7,
+            "deletions": 20,
+            "insertions": 0
+          },
+          {
+            "status": 200,
+            "latencyMs": 1400.955,
+            "wer": 0.9,
+            "referenceWords": 30,
+            "substitutions": 7,
+            "deletions": 20,
+            "insertions": 0
+          }
+        ],
+        "meanMs": 1350.108,
+        "maxMs": 1400.955,
+        "allSuccessful": true
+      },
+      {
+        "model": "large-v3-turbo",
+        "profile": "fast",
+        "computeType": "int8",
+        "flags": {
+          "WHISPER_BEAM_SIZE": "1",
+          "WHISPER_VAD_FILTER": "true",
+          "WHISPER_CONDITION_ON_PREVIOUS_TEXT": "false"
+        },
+        "audioSeconds": 5,
+        "runs": [
+          {
+            "status": 200,
+            "latencyMs": 4647.814,
+            "wer": 0.5,
+            "referenceWords": 10,
+            "substitutions": 5,
+            "deletions": 0,
+            "insertions": 0
+          },
+          {
+            "status": 200,
+            "latencyMs": 4746.723,
+            "wer": 0.5,
+            "referenceWords": 10,
+            "substitutions": 5,
+            "deletions": 0,
+            "insertions": 0
+          },
+          {
+            "status": 200,
+            "latencyMs": 5940.199,
+            "wer": 0.5,
+            "referenceWords": 10,
+            "substitutions": 5,
+            "deletions": 0,
+            "insertions": 0
+          }
+        ],
+        "meanMs": 5111.579,
+        "maxMs": 5940.199,
+        "allSuccessful": true
+      },
+      {
+        "model": "large-v3-turbo",
+        "profile": "fast",
+        "computeType": "int8",
+        "flags": {
+          "WHISPER_BEAM_SIZE": "1",
+          "WHISPER_VAD_FILTER": "true",
+          "WHISPER_CONDITION_ON_PREVIOUS_TEXT": "false"
+        },
+        "audioSeconds": 15,
+        "runs": [
+          {
+            "status": 200,
+            "latencyMs": 5488.26,
+            "wer": 0.833333,
+            "referenceWords": 30,
+            "substitutions": 5,
+            "deletions": 20,
+            "insertions": 0
+          },
+          {
+            "status": 200,
+            "latencyMs": 5089.462,
+            "wer": 0.833333,
+            "referenceWords": 30,
+            "substitutions": 5,
+            "deletions": 20,
+            "insertions": 0
+          },
+          {
+            "status": 200,
+            "latencyMs": 4764.65,
+            "wer": 0.833333,
+            "referenceWords": 30,
+            "substitutions": 5,
+            "deletions": 20,
+            "insertions": 0
+          }
+        ],
+        "meanMs": 5114.124,
+        "maxMs": 5488.26,
+        "allSuccessful": true
+      },
+      {
+        "model": "large-v3-turbo",
+        "profile": "fast",
+        "computeType": "int8",
+        "flags": {
+          "WHISPER_BEAM_SIZE": "1",
+          "WHISPER_VAD_FILTER": "true",
+          "WHISPER_CONDITION_ON_PREVIOUS_TEXT": "false"
+        },
+        "audioSeconds": 30,
+        "runs": [
+          {
+            "status": 200,
+            "latencyMs": 4959.524,
+            "wer": 0.916667,
+            "referenceWords": 60,
+            "substitutions": 5,
+            "deletions": 50,
+            "insertions": 0
+          },
+          {
+            "status": 200,
+            "latencyMs": 5150.857,
+            "wer": 0.916667,
+            "referenceWords": 60,
+            "substitutions": 5,
+            "deletions": 50,
+            "insertions": 0
+          },
+          {
+            "status": 200,
+            "latencyMs": 4968.345,
+            "wer": 0.916667,
+            "referenceWords": 60,
+            "substitutions": 5,
+            "deletions": 50,
+            "insertions": 0
+          }
+        ],
+        "meanMs": 5026.242,
+        "maxMs": 5150.857,
+        "allSuccessful": true
+      },
+      {
+        "model": "large-v3-turbo",
+        "profile": "fast",
+        "computeType": "int8",
+        "flags": {
+          "WHISPER_BEAM_SIZE": "1",
+          "WHISPER_VAD_FILTER": "true",
+          "WHISPER_CONDITION_ON_PREVIOUS_TEXT": "false"
+        },
+        "audioSeconds": 60,
+        "runs": [
+          {
+            "status": 200,
+            "latencyMs": 10653.691,
+            "wer": 0.916667,
+            "referenceWords": 120,
+            "substitutions": 10,
+            "deletions": 100,
+            "insertions": 0
+          },
+          {
+            "status": 200,
+            "latencyMs": 11621.307,
+            "wer": 0.916667,
+            "referenceWords": 120,
+            "substitutions": 10,
+            "deletions": 100,
+            "insertions": 0
+          },
+          {
+            "status": 200,
+            "latencyMs": 9921.441,
+            "wer": 0.916667,
+            "referenceWords": 120,
+            "substitutions": 10,
+            "deletions": 100,
+            "insertions": 0
+          }
+        ],
+        "meanMs": 10732.146,
+        "maxMs": 11621.307,
+        "allSuccessful": true
+      },
+      {
+        "model": "large-v3-turbo",
+        "profile": "comparison",
+        "computeType": "int8",
+        "flags": {
+          "WHISPER_BEAM_SIZE": "5",
+          "WHISPER_VAD_FILTER": "false",
+          "WHISPER_CONDITION_ON_PREVIOUS_TEXT": "true"
+        },
+        "audioSeconds": 15,
+        "runs": [
+          {
+            "status": 200,
+            "latencyMs": 5037.682,
+            "wer": 0.833333,
+            "referenceWords": 30,
+            "substitutions": 5,
+            "deletions": 20,
+            "insertions": 0
+          },
+          {
+            "status": 200,
+            "latencyMs": 5975.639,
+            "wer": 0.833333,
+            "referenceWords": 30,
+            "substitutions": 5,
+            "deletions": 20,
+            "insertions": 0
+          },
+          {
+            "status": 200,
+            "latencyMs": 6092.369,
+            "wer": 0.833333,
+            "referenceWords": 30,
+            "substitutions": 5,
+            "deletions": 20,
+            "insertions": 0
+          }
+        ],
+        "meanMs": 5701.897,
+        "maxMs": 6092.369,
+        "allSuccessful": true
+      }
+    ],
+    "shutdowns": [
+      {
+        "model": "small",
+        "profile": "fast",
+        "exitCode": -15,
+        "leakedSemaphoreWarning": true,
+        "resourceTrackerWarning": true
+      },
+      {
+        "model": "small",
+        "profile": "comparison",
+        "exitCode": -15,
+        "leakedSemaphoreWarning": true,
+        "resourceTrackerWarning": true
+      },
+      {
+        "model": "large-v3-turbo",
+        "profile": "fast",
+        "exitCode": -15,
+        "leakedSemaphoreWarning": true,
+        "resourceTrackerWarning": true
+      },
+      {
+        "model": "large-v3-turbo",
+        "profile": "comparison",
+        "exitCode": -15,
+        "leakedSemaphoreWarning": true,
+        "resourceTrackerWarning": true
+      }
+    ]
+  },
+  "cpuDefault": {
+    "audioSource": "espeak-ng Vietnamese; repeated speech plus silence, NOT a human accuracy benchmark",
+    "reference": "Tôi muốn luyện tập phỏng vấn kỹ thuật phần mềm.",
+    "python": "3.14.7",
+    "visibleCpuCount": 16,
+    "cpuThreads": 4,
+    "serviceSha256": "ff843c494b92ed548c9ac8800495233bcedac2a3190a3c3275a827067050287f",
+    "results": [
+      {
+        "model": "small",
+        "profile": "comparison",
+        "computeType": "int8",
+        "flags": {
+          "WHISPER_BEAM_SIZE": "5",
+          "WHISPER_VAD_FILTER": "false",
+          "WHISPER_CONDITION_ON_PREVIOUS_TEXT": "true"
+        },
+        "audioSeconds": 5,
+        "runs": [
+          {
+            "status": 200,
+            "latencyMs": 1342.148,
+            "wer": 1.0,
+            "referenceWords": 10,
+            "substitutions": 10,
+            "deletions": 0,
+            "insertions": 0
+          },
+          {
+            "status": 200,
+            "latencyMs": 1326.029,
+            "wer": 1.0,
+            "referenceWords": 10,
+            "substitutions": 10,
+            "deletions": 0,
+            "insertions": 0
+          },
+          {
+            "status": 200,
+            "latencyMs": 1527.062,
+            "wer": 1.0,
+            "referenceWords": 10,
+            "substitutions": 10,
+            "deletions": 0,
+            "insertions": 0
+          }
+        ],
+        "meanMs": 1398.413,
+        "maxMs": 1527.062,
+        "allSuccessful": true
+      },
+      {
+        "model": "small",
+        "profile": "comparison",
+        "computeType": "int8",
+        "flags": {
+          "WHISPER_BEAM_SIZE": "5",
+          "WHISPER_VAD_FILTER": "false",
+          "WHISPER_CONDITION_ON_PREVIOUS_TEXT": "true"
+        },
+        "audioSeconds": 15,
+        "runs": [
+          {
+            "status": 200,
+            "latencyMs": 1351.93,
+            "wer": 0.9,
+            "referenceWords": 30,
+            "substitutions": 7,
+            "deletions": 20,
+            "insertions": 0
+          },
+          {
+            "status": 200,
+            "latencyMs": 1417.693,
+            "wer": 0.9,
+            "referenceWords": 30,
+            "substitutions": 7,
+            "deletions": 20,
+            "insertions": 0
+          },
+          {
+            "status": 200,
+            "latencyMs": 1336.143,
+            "wer": 0.9,
+            "referenceWords": 30,
+            "substitutions": 7,
+            "deletions": 20,
+            "insertions": 0
+          }
+        ],
+        "meanMs": 1368.589,
+        "maxMs": 1417.693,
+        "allSuccessful": true
+      },
+      {
+        "model": "small",
+        "profile": "comparison",
+        "computeType": "int8",
+        "flags": {
+          "WHISPER_BEAM_SIZE": "5",
+          "WHISPER_VAD_FILTER": "false",
+          "WHISPER_CONDITION_ON_PREVIOUS_TEXT": "true"
+        },
+        "audioSeconds": 30,
+        "runs": [
+          {
+            "status": 200,
+            "latencyMs": 1525.63,
+            "wer": 0.933333,
+            "referenceWords": 60,
+            "substitutions": 6,
+            "deletions": 50,
+            "insertions": 0
+          },
+          {
+            "status": 200,
+            "latencyMs": 1678.916,
+            "wer": 0.933333,
+            "referenceWords": 60,
+            "substitutions": 6,
+            "deletions": 50,
+            "insertions": 0
+          },
+          {
+            "status": 200,
+            "latencyMs": 1422.873,
+            "wer": 0.933333,
+            "referenceWords": 60,
+            "substitutions": 6,
+            "deletions": 50,
+            "insertions": 0
+          }
+        ],
+        "meanMs": 1542.473,
+        "maxMs": 1678.916,
+        "allSuccessful": true
+      },
+      {
+        "model": "small",
+        "profile": "comparison",
+        "computeType": "int8",
+        "flags": {
+          "WHISPER_BEAM_SIZE": "5",
+          "WHISPER_VAD_FILTER": "false",
+          "WHISPER_CONDITION_ON_PREVIOUS_TEXT": "true"
+        },
+        "audioSeconds": 60,
+        "runs": [
+          {
+            "status": 200,
+            "latencyMs": 2648.853,
+            "wer": 0.933333,
+            "referenceWords": 120,
+            "substitutions": 12,
+            "deletions": 100,
+            "insertions": 0
+          },
+          {
+            "status": 200,
+            "latencyMs": 2888.098,
+            "wer": 0.933333,
+            "referenceWords": 120,
+            "substitutions": 12,
+            "deletions": 100,
+            "insertions": 0
+          },
+          {
+            "status": 200,
+            "latencyMs": 2480.876,
+            "wer": 0.933333,
+            "referenceWords": 120,
+            "substitutions": 12,
+            "deletions": 100,
+            "insertions": 0
+          }
+        ],
+        "meanMs": 2672.609,
+        "maxMs": 2888.098,
+        "allSuccessful": true
+      }
+    ],
+    "shutdowns": [
+      {
+        "model": "small",
+        "profile": "comparison",
+        "exitCode": -15,
+        "leakedSemaphoreWarning": true,
+        "resourceTrackerWarning": true
+      }
+    ]
+  }
+}

@@ -169,3 +169,68 @@ viết `v1.250.123` hoặc `version 1.250.123` nếu muốn giữ như phiên b�
 Kế hoạch sửa review: (1) quy tắc số + regression tests; (2) cấu hình Whisper,
 script đo HTTP và ma trận hai model; (3) teardown tài nguyên, smoke shutdown và
 cập nhật NFR-VMI-01 theo quyết định mới. Mỗi mục có commit riêng trong backend.
+
+
+## Review: cấu hình CPU và đo HTTP thật
+
+Baseline đầu sửa review: build pass, **252 unit/8 suites**, **160 e2e/7 suites**;
+bao gồm các test local người dùng vừa thêm. Commit sửa số: 282 unit/8 suites.
+
+CPU mặc định mới: **small / int8 / auto tối đa 4 thread / beam 5 / VAD false /
+condition_on_previous_text true**. CUDA mặc định giữ large-v3-turbo / float16;
+chưa đo GPU. Alias model base/medium/small/large-v3-turbo đều cấu hình được; không
+tự đổi model khi lỗi. Model nhỏ đánh đổi chất lượng, chưa được coi là cấu hình
+production trước khi thử giọng thật. Số thread auto xét CPU visible/affinity và
+quota cgroup nếu có; explicit 1..64 vẫn hoạt động.
+
+Môi trường đo Python 3.14.7, faster-whisper 1.2.1, CTranslate2 4.9.0, CPU int8,
+4 thread, 16 CPU visible. Đo tuần tự qua HTTP localhost sau warmup; clip 5 giây gồm
+một câu tiếng Việt espeak trọn vẹn + khoảng lặng, ghép lặp thành 15/30/60 giây.
+Không cắt giữa lời nói. Mỗi mốc 3 lần, giữ cả lỗi HTTP trong kết quả.
+[JSON số đo](stt-cpu-review-benchmark.json) lưu từng lần và S/D/I/WER, không lưu
+văn bản nhận diện. Lệnh tái lập từ backend với Python của venv STT:
+
+```bash
+python scripts/measure-stt-latency.py --models small --profiles comparison \
+  --lengths 5 15 30 60 --repeats 3 --threads 4 \
+  --cache-dir /tmp/hireus-task78-whisper-cache --output-dir /tmp/hireus-review-small
+python scripts/measure-stt-latency.py --models large-v3-turbo --profiles fast \
+  --lengths 5 15 30 60 --repeats 3 --threads 4 \
+  --cache-dir /tmp/hireus-task78-whisper-cache --output-dir /tmp/hireus-review-large
+```
+
+| Model / profile | Clip | Trung bình | Lớn nhất | HTTP 200 | WER trung bình |
+| --- | --- | --- | --- | --- | --- |
+| small / comparison | 5s | 1.398s | 1.527s | 3/3 | 100.0% |
+| small / comparison | 15s | 1.369s | 1.418s | 3/3 | 90.0% |
+| small / comparison | 30s | 1.542s | 1.679s | 3/3 | 93.3% |
+| small / comparison | 60s | 2.673s | 2.888s | 3/3 | 93.3% |
+| large-v3-turbo / fast | 5s | 5.112s | 5.940s | 3/3 | 50.0% |
+| large-v3-turbo / fast | 15s | 5.114s | 5.488s | 3/3 | 83.3% |
+| large-v3-turbo / fast | 30s | 5.026s | 5.151s | 3/3 | 91.7% |
+| large-v3-turbo / fast | 60s | 10.732s | 11.621s | 3/3 | 91.7% |
+
+`comparison` là mặc định CPU mới (5/false/true). `fast` là profile cũ
+(1/true/false), không phải mặc định mới. Đối chứng 15 giây: small fast WER 93,3%
+so với 90,0% ở comparison; large có WER 83,3% ở cả hai. Vì không có bằng chứng
+bộ nhanh giữ chất lượng small, **không bật mặc định** chỉ để lấy latency thấp.
+Không suy nhân quả riêng cho từng flag từ phép so sánh cả bộ.
+
+Chất lượng: small ở 5s có WER 100%, large 50%; cả hai bỏ nhiều lần lặp khi clip
+dài, làm WER tăng rất cao. Đây là audio tổng hợp/lặp đơn điệu, không đại diện lời
+trả lời tự nhiên hoặc thuật ngữ IT. Không dùng các số này để chứng minh chất
+lượng tiếng Việt giảm/tăng trên giọng thật. Cần corpus người thật có transcript
+chuẩn, cả vi/en và thuật ngữ, trước quyết định production.
+
+Theo mốc **10s cho chờ STT đến khoảng 30s**, small mặc định và large/fast đều có
+3/3 HTTP 200 dưới 10s ở 5/15/30s trong mẫu này. Small/fast ở 60s có một lần 422;
+large/fast ở 60s có max vượt 10s. Kết quả latency đạt không khắc phục WER xấu.
+Khuyến nghị máy dev CPU: small mặc định để thử luồng, bật sửa/gõ text; GPU: giữ
+large-v3-turbo/float16 và đo lại, không hứa 10s khi chưa có GPU benchmark.
+
+Timeout HTTP mặc định nâng lên **600000 ms** để chừa thời gian clip dài trên CPU;
+`VMI_STT_TIMEOUT_MS` không rỗng ưu tiên, nếu thiếu dùng `WHISPER_STT_TIMEOUT_MS`
+hiện có. Giữ mọi cấu hình cũ explicit, không âm thầm ghi đè. Timeout vẫn trả 504
+sạch. 600s là ngân sách vận hành, không phải mốc nghiệm thu NFR. Chưa đo 180s nên
+không hứa mọi clip 180s sẽ xong trong 600s. Khi có giọng thật, chọn timeout >= RTF
+xấu nhất × 180s + biên decode/upload; không dựa vào duration client chưa xác minh.

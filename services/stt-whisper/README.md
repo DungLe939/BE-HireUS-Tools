@@ -59,3 +59,52 @@ Model and faster-whisper are MIT licensed. Preserve license notices when redistr
 Offline tests use a mock model, no model download or external API:
 Install test tooling with `pip install "httpx>=0.27,<1"` first. Then run
 `python -m unittest discover -s . -p 'test_*.py' -v`.
+
+## CPU/GPU tuning (review)
+
+With `WHISPER_DEVICE=cpu`, an **unset** `WHISPER_MODEL` selects `small` and unset
+`WHISPER_COMPUTE_TYPE` selects `int8`. With `WHISPER_DEVICE=cuda`, defaults are
+`large-v3-turbo` / `float16`. Set model explicitly to `base`, `small`, `medium`, or
+`large-v3-turbo`; existing local model directories and owner/repo IDs remain valid.
+A smaller model trades multilingual/technical-term accuracy for speed; choose it
+from measured target-machine results, not parameter count alone.
+
+Unset `WHISPER_CPU_THREADS` for `min(4, visible CPU count/affinity/cgroup quota)`;
+4 is a capacity cap to leave room for Nest and decoding. Explicit 1..64 overrides
+are supported. `WHISPER_BEAM_SIZE=1..10`, `WHISPER_VAD_FILTER=true|false` and
+`WHISPER_CONDITION_ON_PREVIOUS_TEXT=true|false` expose these choices. The new defaults are **5/false/true**: the fast
+1/true/false profile worsened synthetic WER for small in the comparison, so it is
+not enabled by default. No automatic model downgrade or language detection is performed.
+
+The earlier launch example's explicit `large-v3-turbo` and 2 threads overrides
+these defaults. For the new CPU defaults instead use:
+
+```bash
+unset WHISPER_MODEL WHISPER_CPU_THREADS WHISPER_COMPUTE_TYPE
+export WHISPER_DEVICE=cpu
+export WHISPER_BEAM_SIZE=5 WHISPER_VAD_FILTER=false WHISPER_CONDITION_ON_PREVIOUS_TEXT=true
+```
+
+Backend HTTP timeout now defaults to **600000 ms**, preserving explicit
+`WHISPER_STT_TIMEOUT_MS`; the optional new `VMI_STT_TIMEOUT_MS` alias takes
+precedence when nonempty. This accommodates long CPU clips; it does not assert
+that the 10-second user-visible target is met. A real abort still maps to clean
+504. CPU runtime depends on speech density and model; 180-second processing time
+must be measured separately before claiming a timeout guarantee. The backend
+cannot trust a client-provided duration to select a shorter timeout.
+
+Run the CPU measurement script with the service venv's Python:
+
+```bash
+python ../../scripts/measure-stt-latency.py --models small large-v3-turbo \
+  --lengths 5 15 30 60 --repeats 3 --with-comparison \
+  --cache-dir /tmp/hireus-stt-models --output-dir /tmp/hireus-stt-benchmark
+```
+
+It generates exact-length synthetic speech-plus-silence, starts loopback services,
+measures sequential HTTP round trips after warmup, compares WER against known
+text, and checks shutdown logs. Results contain error counts, never transcripts.
+The default comparison profile uses beam 5 / VAD off / previous-text conditioning on;
+`--with-comparison` additionally measures the fast profile. Both profiles cover
+the same duration matrix per model; it evaluates the combined configuration, not an
+isolated causal effect for each flag. Synthetic WER is not human speech accuracy.

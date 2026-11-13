@@ -9,6 +9,7 @@ describe('WhisperSttProvider (mock HTTP)', () => {
   beforeEach(() => {
     process.env.WHISPER_STT_BASE_URL = 'http://127.0.0.1:8001';
     process.env.WHISPER_STT_TIMEOUT_MS = '30000';
+    delete process.env.VMI_STT_TIMEOUT_MS;
     delete process.env.VMI_AUDIO_MAX_DURATION_MS;
     fetchMock = jest.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ text: 'Draft fixture', language: 'vi', durationMs: 1000 }));
   });
@@ -70,5 +71,36 @@ describe('WhisperSttProvider (mock HTTP)', () => {
     process.env.WHISPER_STT_TIMEOUT_MS = value;
     await expect(provider.transcribe(audio, VmiLanguage.VI)).rejects.toMatchObject({ status: 503 });
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('STT timeout compatibility', () => {
+  const environment = { ...process.env };
+  afterEach(() => { process.env = { ...environment }; jest.restoreAllMocks(); });
+  it('defaults to ten minutes for long CPU recordings', async () => {
+    delete process.env.VMI_STT_TIMEOUT_MS; delete process.env.WHISPER_STT_TIMEOUT_MS;
+    const timeout = jest.spyOn(AbortSignal, 'timeout');
+    jest.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ text: 'fixture', language: 'vi', durationMs: 180000 }));
+    await new WhisperSttProvider().transcribe({ buffer: Buffer.from('fixture'), size: 7, mimetype: 'audio/wav' }, VmiLanguage.VI);
+    expect(timeout).toHaveBeenCalledWith(600000);
+  });
+  it('prefers the new alias and retains the existing timeout setting', async () => {
+    const timeout = jest.spyOn(AbortSignal, 'timeout');
+    process.env.VMI_STT_TIMEOUT_MS = '120000'; process.env.WHISPER_STT_TIMEOUT_MS = '45000';
+    jest.spyOn(globalThis, 'fetch').mockImplementation(async () => Response.json({ text: 'fixture', language: 'vi', durationMs: 1000 }));
+    const provider = new WhisperSttProvider();
+    const audio = { buffer: Buffer.from('fixture'), size: 7, mimetype: 'audio/wav' };
+    await provider.transcribe(audio, VmiLanguage.VI); expect(timeout).toHaveBeenLastCalledWith(120000);
+    delete process.env.VMI_STT_TIMEOUT_MS;
+    await provider.transcribe(audio, VmiLanguage.VI); expect(timeout).toHaveBeenLastCalledWith(45000);
+  });
+  it('returns a clean 504 with a configured real abort timer', async () => {
+    process.env.VMI_STT_TIMEOUT_MS = '5';
+    jest.spyOn(globalThis, 'fetch').mockImplementation((_url, init) => new Promise((_r, reject) => {
+      init!.signal!.addEventListener('abort', () => reject(init!.signal!.reason), { once: true });
+    }));
+    await expect(new WhisperSttProvider().transcribe({ buffer: Buffer.from('fixture'), size: 7, mimetype: 'audio/wav' }, VmiLanguage.VI))
+      .rejects.toMatchObject({ status: 504, response: { code: 'VMI_STT_TIMEOUT' } });
   });
 });

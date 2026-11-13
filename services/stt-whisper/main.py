@@ -7,6 +7,8 @@ import shutil
 import subprocess
 import threading
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
+from pathlib import Path
 from time import perf_counter
 from typing import Literal
 
@@ -36,22 +38,74 @@ def failure(status, code):
     return HTTPException(status_code=status, detail={"code": code})
 
 
+def available_cpu_threads():
+    # Leave capacity for Nest/decoding; respect affinity and a cgroup CPU quota.
+    visible = getattr(os, 'process_cpu_count', os.cpu_count)() or 1
+    try:
+        visible = min(visible, len(os.sched_getaffinity(0)))
+    except AttributeError:
+        pass
+    try:
+        quota, period = Path('/sys/fs/cgroup/cpu.max').read_text().split()
+        if quota != 'max': visible = min(visible, max(1, int(quota) // int(period)))
+    except (OSError, ValueError):
+        pass
+    return max(1, min(4, visible))
+
+
+@dataclass(frozen=True)
+class WhisperConfig:
+    model: str
+    device: str
+    compute_type: str
+    cpu_threads: int
+    beam_size: int
+    vad_filter: bool
+    condition_on_previous_text: bool
+
+
+def whisper_config():
+    def integer_setting(name, default, low, high):
+        raw = os.environ.get(name, str(default))
+        if not re.fullmatch(r'[0-9]+', raw) or not low <= int(raw) <= high:
+            raise ValueError(f'Invalid {name}.')
+        return int(raw)
+
+    def flag(name, default):
+        raw = os.environ.get(name, str(default)).lower()
+        if raw not in ('true', 'false'): raise ValueError(f'Invalid {name}.')
+        return raw == 'true'
+
+    device = os.environ.get('WHISPER_DEVICE', 'cpu')
+    if device not in ('cpu', 'cuda', 'auto'): raise ValueError('Invalid WHISPER_DEVICE.')
+    model = os.environ.get('WHISPER_MODEL', 'large-v3-turbo' if device == 'cuda' else 'small')
+    if model not in ('large-v3-turbo', 'medium', 'small', 'base') and not Path(model).is_dir() and not re.fullmatch(r'[\w.-]+/[\w.-]+', model):
+        raise ValueError('Invalid WHISPER_MODEL.')
+    # Empty means unset only for optional device-dependent defaults, not numeric values.
+    if not model: raise ValueError('Invalid WHISPER_MODEL.')
+    compute = os.environ.get('WHISPER_COMPUTE_TYPE', 'float16' if device == 'cuda' else 'int8')
+    if compute not in ('default', 'auto', 'int8', 'int8_float32', 'int8_float16', 'int8_bfloat16', 'int16', 'float16', 'bfloat16', 'float32'):
+        raise ValueError('Invalid WHISPER_COMPUTE_TYPE.')
+    return WhisperConfig(model, device, compute,
+        integer_setting('WHISPER_CPU_THREADS', available_cpu_threads(), 1, 64),
+        integer_setting('WHISPER_BEAM_SIZE', 5, 1, 10),
+        flag('WHISPER_VAD_FILTER', False), flag('WHISPER_CONDITION_ON_PREVIOUS_TEXT', True))
+
+
+def create_model(config):
+    from faster_whisper import WhisperModel
+    return WhisperModel(config.model, device=config.device, compute_type=config.compute_type,
+                        cpu_threads=config.cpu_threads, num_workers=1,
+                        download_root=os.environ.get('WHISPER_MODEL_CACHE'))
+
+
 @asynccontextmanager
 async def lifespan(app):
     if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
         raise RuntimeError("Install ffmpeg and ffprobe and add both to PATH.")
     limits()
-    from faster_whisper import WhisperModel
-    threads = int(os.environ.get("WHISPER_CPU_THREADS", "2"))
-    if not 1 <= threads <= 64:
-        raise RuntimeError("Invalid CPU thread configuration.")
-    app.state.model = WhisperModel(
-        os.environ.get("WHISPER_MODEL", "large-v3-turbo"),
-        device=os.environ.get("WHISPER_DEVICE", "cpu"),
-        compute_type=os.environ.get("WHISPER_COMPUTE_TYPE", "int8"),
-        cpu_threads=threads, num_workers=1,
-        download_root=os.environ.get("WHISPER_MODEL_CACHE"),
-    )
+    app.state.config = whisper_config()
+    app.state.model = create_model(app.state.config)
     app.state.lock = threading.Lock()
     app.state.ready = True
     yield
@@ -139,8 +193,9 @@ def recognize(data, mime, language):
     try:
         _, max_ms = limits()
         samples = decode_audio(data, mime, max_ms)
-        segments, _ = app.state.model.transcribe(samples, language=language, task="transcribe", beam_size=1,
-                                                  vad_filter=True, condition_on_previous_text=False)
+        config = getattr(app.state, 'config', None) or whisper_config()
+        segments, _ = app.state.model.transcribe(samples, language=language, task="transcribe", beam_size=config.beam_size,
+                                                vad_filter=config.vad_filter, condition_on_previous_text=config.condition_on_previous_text)
         # faster-whisper is lazy: inference finishes only after consuming segments.
         text = " ".join(segment.text.strip() for segment in segments).strip()
         if not text:

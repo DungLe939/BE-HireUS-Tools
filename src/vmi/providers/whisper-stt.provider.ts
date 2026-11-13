@@ -6,7 +6,7 @@ import type { VmiLanguage } from '../types/vmi.types';
 @Injectable()
 export class WhisperSttProvider implements SttProvider {
   async transcribe(audio: SttAudio, language: VmiLanguage): Promise<SttResult> {
-    const rawTimeout = process.env.WHISPER_STT_TIMEOUT_MS ?? '30000';
+    const rawTimeout = process.env.VMI_STT_TIMEOUT_MS?.trim() || (process.env.WHISPER_STT_TIMEOUT_MS ?? '600000');
     const timeout = Number(rawTimeout);
     const rawDuration = process.env.VMI_AUDIO_MAX_DURATION_MS ?? String(DEFAULT_AUDIO_DURATION_MS);
     const maxDuration = Number(rawDuration);
