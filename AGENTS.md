@@ -1,57 +1,84 @@
-# HireUS Backend Agent Instructions
+# HireUS Backend — hướng dẫn lập trình
 
-## Purpose and verified baseline
+## Hiện trạng và nguồn
 
-This repository is the NestJS backend for HireUS Tools. The current baseline is NestJS 12,
-TypeScript, Node.js, npm, CommonJS, and Jest. Application code lives in `src/`; the repository
-currently contains only the NestJS starter module, controller, service, and bootstrap. Do not
-infer that planned capabilities are already implemented.
+Đọc [PROJECT_SOURCES.md](PROJECT_SOURCES.md) để tìm yêu cầu tại `../documents/`.
+Kiểm tra manifest, code và test trên nhánh đang làm trước khi dựa vào baseline.
+Baseline là NestJS, TypeScript, npm, CommonJS và Jest, với code trong `src/`.
+Khung ban đầu chưa cấu hình PostgreSQL/Prisma, auth hay dịch vụ AI.
 
-## Business sources and scope
+## NestJS, dữ liệu và API
 
-- Before a business feature, read `PROJECT_SOURCES.md` and the relevant CNPM-Docs sources.
-- Follow `CNPM-Docs/.agents/rules/source-of-truth.md` for evidence and source precedence.
-- Do not infer functionality beyond the confirmed Proposal and task acceptance criteria.
-- Distinguish confirmed decisions from proposed or planned work, implementation, verification,
-  submission, and approval.
-- If a relevant source changes, re-read it before changing implementation. If sources conflict
-  and the difference affects behavior, report the conflict and ask for resolution.
-- If CNPM-Docs is inaccessible, mark business requirements unverified and request the relevant
-  path or file; continue independent technical work where possible.
-- Never edit the CNPM-Docs repository during a Backend task. Report any shared-document changes
-  that should be carried back to that repository.
-- Local specifications in `.specify/` or `specs/` must cite the applicable central source and
-  must not contradict it.
+- Controller xử lý biên HTTP; service/provider xử lý nghiệp vụ; module tổ chức tính năng.
+  Dùng DTO và cơ chế validation thực sự được cấu hình.
+- Backend sở hữu contract tại `contracts/`; xem
+  [contracts/README.md](contracts/README.md). Khi được giao thiết kế API, đề xuất
+  method/path/schema từ yêu cầu đủ rõ; ghi rõ quyết định còn thiếu trước khi FE phụ thuộc.
+  Không tự quyết auth, quyền dữ liệu hoặc ý nghĩa nghiệp vụ.
+- Khi đổi contract hiện có, đánh giá tương thích và ảnh hưởng FE.
+  Không trả persistence entity nếu nó làm lộ dữ liệu ngoài contract.
+- Kiểm tra schema/migration và môi trường thực tế trước khi đổi database.
+  Không chạy reset, xóa dữ liệu hoặc migration phá hủy khi chưa được cho phép.
+- Giữ credentials và dịch vụ AI ở server; kiểm tra input, quyền truy cập,
+  phản hồi provider, timeout và lỗi theo phạm vi tính năng. Không log secrets
+  hoặc dữ liệu cá nhân nhạy cảm.
 
-## NestJS and API conventions
+## Skills và quy trình
 
-- Keep controllers at the HTTP boundary; put application behavior in providers/services and
-  organize features with NestJS modules.
-- Use request DTOs and the repository's configured validation mechanism. Do not claim validation,
-  authentication, or authorization is active unless it is implemented and covered by an approved
-  requirement.
-- Backend owns the REST API contract it exposes. See `contracts/README.md` for ownership and
-  change coordination. Do not invent endpoints, request fields, response fields, or error formats.
-- Preserve established API behavior. Call out breaking changes and Frontend impact before treating
-  a contract change as complete.
-- Do not expose persistence entities or sensitive data directly when that could disclose fields
-  outside the approved contract.
+Các `SKILL.md` là hướng dẫn dùng chung cho nhiều agent. Nếu công cụ không tự nạp,
+đọc file trực tiếp và dùng khả năng tương đương sẵn có; không giả định cú pháp gọi
+skill hoặc tên tool giống nhau giữa các agent.
 
-## Data, security, and external services
+Chỉ đọc skill cần cho đầu việc:
 
-- Check the actual repository setup and the approved feature spec before adding a database, ORM,
-  schema, migration, or external service. PostgreSQL/Prisma and AI services are not configured in
-  the current Backend baseline.
-- Never hardcode secrets or expose AI/provider credentials to the Frontend. Validate external
-  service responses and handle failure/timeout cases when an approved feature requires integration.
-- Do not construct database queries from unvalidated input. Do not run destructive database
-  operations, resets, or migrations without explicit authorization and a reviewed impact.
-- Do not log passwords, access tokens, secrets, or sensitive personal data.
+| Công việc | Skill |
+| --- | --- |
+| Module/tính năng NestJS | [nestjs-feature](.agents/skills/nestjs-feature/SKILL.md) |
+| Thiết kế hoặc review HTTP contract | [rest-api-contract](.agents/skills/rest-api-contract/SKILL.md) |
+| Prisma, schema, query, migration | [prisma-data](.agents/skills/prisma-data/SKILL.md) |
+| Review kỹ thuật | [backend-quality](.agents/skills/backend-quality/SKILL.md) |
 
-## Development workflow
+Sửa nhỏ làm trực tiếp từ yêu cầu đủ rõ. Spec Kit tùy chọn cho tính năng lớn:
+đọc [.agents/references/spec-kit.md](.agents/references/spec-kit.md) trước khi gọi
+`speckit-*`. Ví dụ trong template không phải quyết định dự án và không cho phép
+tự chọn auth, quyền hoặc mục tiêu hiệu năng.
 
-- Inspect existing code, tests, and applicable Spec Kit artifacts before changing a feature.
-- Add or update Jest tests for behavior changes when the task calls for implementation and tests.
-  Use `npm test` and `npm run build` for the relevant validation; report exactly what ran.
-- Keep changes within the requested scope and avoid unrequested dependencies or services.
-- Do not commit or push unless explicitly requested.
+Reviewer tại `.codex/agents/` là adapter riêng cho Codex. Với agent khác, dùng
+`backend-quality` và `rest-api-contract` trực tiếp cho phần review liên quan.
+Chỉ giao reviewer riêng khi tác vụ cho phép và công cụ hỗ trợ; không cần nhiều agent.
+
+## Kiểm tra và bàn giao
+
+Khi bắt đầu việc có sửa, kiểm tra nhánh/upstream và thay đổi local; nếu chưa cập nhật
+nguồn cho đầu việc, nhắc pull một lần. Yêu cầu cập nhật/push cho phép fetch remote
+liên quan; không pull khi chỉ đọc local. Dùng fast-forward khi sạch và chỉ behind;
+không tự stash/reset hoặc force-push. Nếu phân kỳ, xem hai phía và bảo toàn lịch sử.
+
+Trước bàn giao/push, xem cả commit chưa push, diff và file mới liên quan; đối chiếu
+README/cách chạy, config mẫu, contract, spec/tasks và tài liệu yêu cầu. Cập nhật
+tài liệu kỹ thuật/tổng hợp bị tác động, sửa/gộp/bỏ bản dẫn xuất lỗi thời có căn cứ;
+không đổi nghiệp vụ chỉ để khớp code lỗi. Đọc hướng dẫn documents trước khi sửa.
+Nếu mở workspace, đọc `../.agents/skills/team-sync/SKILL.md` và skill
+`docs-maintenance` trong repo tài liệu; clone riêng vẫn áp dụng các bước trên.
+Thiếu checkout tài liệu thì nêu phần chưa đối chiếu, hỏi đường dẫn nếu cần và
+tiếp tục phần độc lập; không báo đã sync mọi tài liệu.
+
+Với thay đổi hành vi, thêm hoặc cập nhật Jest test cho trường hợp quan trọng.
+Chạy từ repo này:
+
+```bash
+npm test -- --runInBand
+npm run build
+```
+
+Chạy `npm run test:e2e -- --runInBand` khi đổi luồng HTTP cần kiểm tra tích hợp.
+Mục tiêu coverage trong Proposal là kế hoạch; không tự đặt quality gate mới.
+
+Phần cập nhật tài liệu liên quan trước bàn giao/push thuộc quy trình nhóm ở trên;
+sửa repo khác ngoài phần đó cần yêu cầu phối hợp. Đọc hướng dẫn repo kia trước khi sửa.
+Giữ nhánh đang làm và thay đổi local. Skills/hướng dẫn được chia sẻ qua Git,
+không thêm vào ignore. Chỉ commit/push khi được yêu cầu.
+Báo đã làm gì, kiểm tra thực sự chạy, tài liệu sửa/giữ/xóa và lý do, phần còn thiếu;
+giải thích luồng đáng chú ý bằng tiếng Việt. Push bị remote đi trước thì fetch,
+tích hợp cùng đích đã xác minh, rà lại tài liệu và kiểm tra phần bị tác động.
+Sau push, xác nhận commit/nhánh đích; không coi push BE là đã công bố documents hoặc repo cha.

@@ -2,7 +2,7 @@
 
 Backend owns the contract for each REST API endpoint it exposes. Frontend consumes the contract
 that has been reviewed and approved for the relevant feature. The domain requirement remains in
-CNPM-Docs; this directory is for the technical HTTP interface maintained with Backend.
+Docs-HireUS-Tools; this directory is for the technical HTTP interface maintained with Backend.
 
 No OpenAPI document or business endpoint is defined here yet. OpenAPI is the recommended format
 when a concrete REST contract is approved, but Swagger/OpenAPI dependencies are not part of the
@@ -16,9 +16,11 @@ For each approved contract change:
    authentication/authorization requirements supported by that feature's approved source.
 3. Check backward compatibility and identify Frontend consumer impact before changing an existing
    contract.
-4. Keep the contract and its implementation aligned. Record the CNPM-Docs source revision and the
+4. Keep the contract and its implementation aligned. Record the Docs-HireUS-Tools source revision and the
    Backend contract version or commit when synchronizing with another repository.
 5. Report missing or conflicting requirements instead of filling them with inferred behavior.
 
-This repository does not authorize changes to CNPM-Docs. Shared product or architecture updates
-must be reported for the documentation repository owner to apply.
+Before handoff or push, review and update technical guidance and summaries affected by the change,
+following the team's `docs-maintenance` workflow and the documentation repository's instructions.
+Change product requirements only when supported by a new decision, not to accommodate incorrect code.
+Changes to other repositories beyond this documentation maintenance need a coordinated task.
