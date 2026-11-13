@@ -22,7 +22,7 @@ const aiResult = {
 describe('VMI sessions (e2e)', () => {
   let app: INestApplication;
   let repository: VmiSessionRepository;
-  const ai = { initInterviewContext: jest.fn() };
+  const ai = { refineTranscript: jest.fn().mockImplementation(async input => input.rawText), initInterviewContext: jest.fn() };
   let fetchMock: jest.SpiedFunction<typeof fetch>;
 
   beforeAll(async () => {
@@ -175,7 +175,7 @@ describe('VMI sessions with an overridden CV provider (e2e)', () => {
   it('uses a snapshot of the owner CV despite edits before start', async () => {
     const sourceCv = { id: 'cv-1', summary: 'Original CV project' };
     const cv = { getSummary: jest.fn().mockResolvedValue(sourceCv) };
-    const ai = { initInterviewContext: jest.fn().mockResolvedValue(structuredClone(aiResult)) };
+    const ai = { refineTranscript: jest.fn().mockImplementation(async input => input.rawText), initInterviewContext: jest.fn().mockResolvedValue(structuredClone(aiResult)) };
     const fetchMock = jest.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Real fetch is forbidden in VMI e2e'));
     const module = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(AI_PROVIDER).useValue(ai)

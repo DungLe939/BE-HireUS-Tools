@@ -1,3 +1,4 @@
+import { cvTechnologyTerms, guardedTranscript, refineConfiguration, withRefineDeadline } from './utils/transcript-refine.util';
 import { STT_PROVIDER, MAX_AUDIO_BYTES, STT_MIME } from './interfaces/stt-provider.interface';
 import type { SttAudio, SttProvider } from './interfaces/stt-provider.interface';
 import { randomUUID } from 'node:crypto';
@@ -57,7 +58,19 @@ export class VmiService {
         if (!this.stt) throw new ServiceUnavailableException();
         return this.stt.transcribe(audio, session.language);
       });
-      return { text: result.text, language: session.language };
+      let text = result.text;
+      if (process.env.VMI_STT_REFINE_ENABLED === 'true' && result.text.trim() && result.text.length <= 20000) {
+        const began = performance.now();
+        try {
+          const candidate = await withRefineDeadline(() => this.ai.refineTranscript({
+            rawText: result.text, question: question.questionText, position: session.position, level: session.level,
+            language: session.language, cvTerms: session.cvSnapshot ? cvTechnologyTerms(session.cvSnapshot.summary) : [],
+          }), refineConfiguration().timeoutMs);
+          text = guardedTranscript(result.text, candidate);
+        } catch { text = result.text; }
+        finally { this.logger.log({ event: 'stt_refine', durationMs: Number((performance.now() - began).toFixed(3)) }); }
+      }
+      return { text, language: session.language, rawText: result.text, refined: text !== result.text };
     } finally { this.transcribingSessions.delete(id); }
   }
 

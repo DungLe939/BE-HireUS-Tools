@@ -16,7 +16,7 @@ describe('VMI history (e2e)', () => {
   let repository: VmiSessionRepository;
   let fetchMock: jest.SpiedFunction<typeof fetch>;
   let sourceCv: CvSummary | null;
-  const ai = { initInterviewContext: jest.fn(), generateNextQuestion: jest.fn(), evaluateInterview: jest.fn() };
+  const ai = { refineTranscript: jest.fn().mockImplementation(async input => input.rawText), initInterviewContext: jest.fn(), generateNextQuestion: jest.fn(), evaluateInterview: jest.fn() };
   const cv = { getSummary: jest.fn() };
   const settings = { position: 'BACKEND', level: 'FRESHER', language: 'en', targetQuestionCount: 5 };
 

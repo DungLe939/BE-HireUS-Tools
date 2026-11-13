@@ -25,7 +25,7 @@ describe('VmiService', () => {
 
   beforeEach(() => {
     repository = new InMemoryVmiSessionRepository();
-    ai = { initInterviewContext: jest.fn().mockResolvedValue(structuredClone(aiResult)), generateNextQuestion: jest.fn(), evaluateInterview: jest.fn() };
+    ai = { refineTranscript: jest.fn().mockImplementation(async input => input.rawText), initInterviewContext: jest.fn().mockResolvedValue(structuredClone(aiResult)), generateNextQuestion: jest.fn(), evaluateInterview: jest.fn() };
     cv = { getSummary: jest.fn().mockResolvedValue(null) };
     service = new VmiService(repository, ai, cv);
   });
@@ -191,7 +191,7 @@ describe('VmiService text interview', () => {
     latencyLog = jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
     repository = new InMemoryVmiSessionRepository();
     ai = {
-      initInterviewContext: jest.fn().mockImplementation(async (input) => ({
+      refineTranscript: jest.fn().mockImplementation(async input => input.rawText), initInterviewContext: jest.fn().mockImplementation(async (input) => ({
         context: 'internal-context-marker', openingQuestion: opening,
         questionPlan: [opening, ...Array.from({ length: input.targetQuestionCount - 2 }, () => ({
           stage: VmiStage.TECHNICAL, questionText: 'Planned technical question', cvBased: false,
@@ -358,7 +358,7 @@ describe('VmiService evaluation', () => {
     strengths: ['Strength'], knowledgeGaps: ['Gap'], suggestedAnswers: ['Better answer'], reviewTopics: ['Topic'] };
   beforeEach(() => {
     repository = new InMemoryVmiSessionRepository();
-    ai = { initInterviewContext: jest.fn().mockResolvedValue(structuredClone(aiResult)),
+    ai = { refineTranscript: jest.fn().mockImplementation(async input => input.rawText), initInterviewContext: jest.fn().mockResolvedValue(structuredClone(aiResult)),
       generateNextQuestion: jest.fn().mockResolvedValue({ stage: VmiStage.TECHNICAL, questionText: 'Next', cvBased: false }),
       evaluateInterview: jest.fn().mockResolvedValue({ ...assessment, overallScore: 100, band: 'GREEN' }),
     };
@@ -453,7 +453,7 @@ describe('VmiService recovery', () => {
   beforeEach(() => {
     repository = new InMemoryVmiSessionRepository();
     ai = {
-      initInterviewContext: jest.fn().mockImplementation(async input => ({
+      refineTranscript: jest.fn().mockImplementation(async input => input.rawText), initInterviewContext: jest.fn().mockImplementation(async input => ({
         context: 'internal context', openingQuestion: opening,
         questionPlan: [opening, ...Array.from({ length: input.targetQuestionCount! - 2 }, () => ({
           stage: VmiStage.TECHNICAL, questionText: 'Technical', cvBased: false,
@@ -671,7 +671,7 @@ describe('VmiService retry locking across recovery operations', () => {
     const assessment = { technical: 80, problemSolving: 50, communication: 20,
       strengths: ['Strength'], knowledgeGaps: ['Gap'], suggestedAnswers: ['Guidance'], reviewTopics: ['Topic'] };
     const ai: jest.Mocked<AiProvider> = {
-      initInterviewContext: jest.fn().mockResolvedValue(structuredClone(aiResult)),
+      refineTranscript: jest.fn().mockImplementation(async input => input.rawText), initInterviewContext: jest.fn().mockResolvedValue(structuredClone(aiResult)),
       generateNextQuestion: jest.fn().mockRejectedValueOnce(new GatewayTimeoutException()).mockImplementation(async input => {
         entered(); await new Promise<void>(r => { release = r; });
         return { stage: input.stage, questionText: 'Late question', cvBased: false };
@@ -708,7 +708,7 @@ describe('VmiService history', () => {
     suggestedAnswers: ['Guidance'], reviewTopics: ['Topic'], recommendation: 'Recommendation', disclaimer: 'Training only', createdAt: new Date(5000) };
   beforeEach(() => {
     repository = new InMemoryVmiSessionRepository();
-    ai = { initInterviewContext: jest.fn(), generateNextQuestion: jest.fn(), evaluateInterview: jest.fn() };
+    ai = { refineTranscript: jest.fn().mockImplementation(async input => input.rawText), initInterviewContext: jest.fn(), generateNextQuestion: jest.fn(), evaluateInterview: jest.fn() };
     cv = { getSummary: jest.fn().mockResolvedValue({ id: 'cv-1', summary: 'Original CV project' }) };
     service = new VmiService(repository, ai, cv);
   });

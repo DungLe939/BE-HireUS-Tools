@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Voice Mock Interview API
-  version: 0.8.0
+  version: 0.9.0
   description: |
     Configuration, device-confirmed start, text interview, speech drafts/playback, evaluation, recovery and history.
     FR-VMI-01, FR-VMI-02, FR-VMI-04, FR-VMI-05, FR-VMI-06, FR-VMI-10,
@@ -29,6 +29,10 @@ paths:
         Audio and text are not saved. The client must confirm/edit text then call
         POST /answers separately. All failures preserve the saved interview data.
         Concurrent transcription for one session returns 400; retry is safe.
+        Optional contextual spelling refinement runs inside the same lock. Failure,
+        timeout or excessive edits return the original draft (text = rawText,
+        refined = false), with no new error codes. Evaluation still uses only the
+        answerText confirmed and submitted separately through /answers.
       parameters:
         - $ref: '#/components/parameters/TestUserId'
         - name: id
@@ -53,9 +57,11 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [text, language]
+                required: [text, language, rawText, refined]
                 properties:
                   text: { type: string, minLength: 1 }
+                  rawText: { type: string, minLength: 1, description: Original STT draft, always present. }
+                  refined: { type: boolean, description: True only when accepted refinement changed text. }
                   language:
                     $ref: '#/components/schemas/Language'
         '400':

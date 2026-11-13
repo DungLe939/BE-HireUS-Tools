@@ -11,7 +11,7 @@ import type { VmiSessionRepository } from '../src/vmi/interfaces/vmi-session-rep
 describe('VMI text interview (e2e)', () => {
   let app: INestApplication;
   let repository: VmiSessionRepository;
-  const ai = { initInterviewContext: jest.fn(), generateNextQuestion: jest.fn() };
+  const ai = { refineTranscript: jest.fn().mockImplementation(async input => input.rawText), initInterviewContext: jest.fn(), generateNextQuestion: jest.fn() };
   let fetchMock: jest.SpiedFunction<typeof fetch>;
 
   beforeAll(async () => {

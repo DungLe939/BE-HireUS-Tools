@@ -4,10 +4,10 @@ Backend owns the contract for each REST API endpoint it exposes. Frontend consum
 that has been reviewed and approved for the relevant feature. The domain requirement remains in
 Docs-HireUS-Tools; this directory is for the technical HTTP interface maintained with Backend.
 
-No OpenAPI document or business endpoint is defined here yet. OpenAPI is the recommended format
-when a concrete REST contract is approved, but Swagger/OpenAPI dependencies are not part of the
-current setup. Do not add placeholder endpoints, DTOs, or schemas to make this directory look
-complete.
+The current VMI contract is [vmi.openapi.yaml](vmi.openapi.yaml), version 0.9.0.
+It adds `rawText` and `refined` to transcription drafts, preserving `text` and
+`language`. Optional refinement failures return the original draft with HTTP 200;
+existing STT errors remain unchanged. No Swagger dependency is required.
 
 For each approved contract change:
 

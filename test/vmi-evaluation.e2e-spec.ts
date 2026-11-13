@@ -11,7 +11,7 @@ describe('VMI evaluation (e2e)', () => {
   let app: INestApplication;
   let repository: VmiSessionRepository;
   let fetchMock: jest.SpiedFunction<typeof fetch>;
-  const ai = { initInterviewContext: jest.fn(), generateNextQuestion: jest.fn(), evaluateInterview: jest.fn() };
+  const ai = { refineTranscript: jest.fn().mockImplementation(async input => input.rawText), initInterviewContext: jest.fn(), generateNextQuestion: jest.fn(), evaluateInterview: jest.fn() };
   const assessment = { technical: 80, problemSolving: 50, communication: 20,
     strengths: ['Specific strength'], knowledgeGaps: ['Knowledge gap'], suggestedAnswers: ['Better explanation'], reviewTopics: ['Review topic'] };
 
