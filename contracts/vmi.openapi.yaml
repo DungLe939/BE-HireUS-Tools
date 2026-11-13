@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Voice Mock Interview API
-  version: 0.7.0
+  version: 0.8.0
   description: |
     Configuration, device-confirmed start, text interview, evaluation, recovery and history.
     FR-VMI-01, FR-VMI-02, FR-VMI-04, FR-VMI-05, FR-VMI-06, FR-VMI-10,
@@ -13,6 +13,43 @@ info:
     Authentication is temporary: only NODE_ENV=test honors x-mock-user-id;
     every other environment uses the fixed mock identity. JWT is not implemented.
 paths:
+  /vmi/sessions/{id}/questions/{questionId}/audio:
+    get:
+      operationId: getVmiQuestionAudio
+      summary: Read or replay a saved question in the session language (FR-VMI-11).
+      description: |
+        Owner only. Session must be SETUP or IN_PROGRESS and questionId must belong
+        to its saved turns. SETUP currently has no generated questions, so returns
+        404 until start succeeds. No saved text, answer or status is changed.
+        WAV PCM 16-bit mono 44100 Hz from self-hosted ZONOS3-Mini.
+        Failures preserve the question text and allow retry. Concurrent requests
+        for the same question share one generation; audio is not persisted/cached.
+      parameters:
+        - $ref: '#/components/parameters/TestUserId'
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: questionId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Buffered WAV. Cache-Control is no-store.
+          content:
+            audio/wav:
+              schema: { type: string, format: binary }
+        '400':
+          description: Invalid UUID or session not SETUP/IN_PROGRESS.
+        '404':
+          description: Session absent, foreign owner, or question absent from this session.
+        '502':
+          description: VMI_TTS_UNAVAILABLE; upstream rejected request, malformed/empty WAV, or unexpected failure.
+        '503':
+          description: VMI_TTS_UNAVAILABLE; invalid config, network error or upstream overload.
+        '504':
+          description: VMI_TTS_TIMEOUT; request or response body timed out.
   /vmi/options:
     get:
       operationId: getVmiOptions

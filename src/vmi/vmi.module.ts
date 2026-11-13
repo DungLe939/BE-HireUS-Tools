@@ -1,3 +1,5 @@
+import { TTS_PROVIDER } from './interfaces/tts-provider.interface';
+import { ZonosTtsProvider } from './providers/zonos-tts.provider';
 import { Module, ValidationPipe } from '@nestjs/common';
 import { APP_PIPE } from '@nestjs/core';
 import { TempAuthGuard } from './guards/temp-auth.guard';
@@ -23,6 +25,7 @@ import { VmiService } from './vmi.service';
     },
     TempAuthGuard,
     { provide: CV_PROVIDER, useClass: EmptyCvProvider },
+    { provide: TTS_PROVIDER, useClass: ZonosTtsProvider },
     { provide: AI_PROVIDER, useClass: GeminiAiProvider },
     { provide: VMI_SESSION_REPOSITORY, useClass: InMemoryVmiSessionRepository },
     VmiService,

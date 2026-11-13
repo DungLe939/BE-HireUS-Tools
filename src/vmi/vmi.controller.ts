@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
+import { Header, StreamableFile, Body, Controller, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { CreateVmiSessionDto } from './dto/create-vmi-session.dto';
 import { StartVmiSessionDto } from './dto/start-vmi-session.dto';
@@ -11,6 +11,16 @@ import { ListVmiSessionsQueryDto } from './dto/list-vmi-sessions-query.dto';
 @UseGuards(TempAuthGuard)
 export class VmiController {
   constructor(private readonly service: VmiService) {}
+
+  @Get('sessions/:id/questions/:questionId/audio')
+  @Header('Cache-Control', 'no-store')
+  async getQuestionAudio(
+    @CurrentUser() userId: string,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+    @Param('questionId', new ParseUUIDPipe({ version: '4' })) questionId: string,
+  ) {
+    return new StreamableFile(await this.service.synthesizeQuestion(userId, id, questionId), { type: 'audio/wav' });
+  }
 
   @Get('sessions')
   listSessions(@CurrentUser() userId: string, @Query() query: ListVmiSessionsQueryDto) {

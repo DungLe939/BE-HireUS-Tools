@@ -8,10 +8,13 @@ import {
   Inject,
   Injectable,
   Logger,
+  Optional,
   NotFoundException,
   ServiceUnavailableException,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { TTS_PROVIDER } from './interfaces/tts-provider.interface';
+import type { TtsProvider } from './interfaces/tts-provider.interface';
 import { AI_PROVIDER } from './interfaces/ai-provider.interface';
 import type { AiProvider } from './interfaces/ai-provider.interface';
 import { CV_PROVIDER } from './interfaces/cv-provider.interface';
@@ -28,6 +31,41 @@ import { calculateVmiScore } from './utils/vmi-scoring.util';
 
 @Injectable()
 export class VmiService {
+  private readonly synthesizingQuestions = new Map<string, Promise<Buffer>>();
+
+  async synthesizeQuestion(userId: string, id: string, questionId: string): Promise<Buffer> {
+    const session = await this.ownedSession(userId, id);
+    if (![VmiSessionStatus.SETUP, VmiSessionStatus.IN_PROGRESS].includes(session.status)) {
+      throw new BadRequestException('Question playback requires SETUP or IN_PROGRESS.');
+    }
+    const question = session.turns.find(turn => turn.questionId === questionId);
+    if (!question) throw new NotFoundException('Question not found.');
+    const key = `${id}:${questionId}`;
+    const pending = this.synthesizingQuestions.get(key);
+    if (pending) return pending;
+    const generation = this.measureSpeech('tts', async () => {
+      if (!this.tts) throw new ServiceUnavailableException();
+      return this.tts.synthesize(question.questionText, session.language);
+    });
+    this.synthesizingQuestions.set(key, generation);
+    try { return await generation; }
+    finally { this.synthesizingQuestions.delete(key); }
+  }
+
+  private async measureSpeech<T>(event: 'stt' | 'tts', operation: () => Promise<T>): Promise<T> {
+    const began = performance.now();
+    try { return await operation(); }
+    catch (error: unknown) {
+      const upstream = error instanceof HttpException ? error.getStatus() : 502;
+      const statusCode = upstream === 504 ? 504 : upstream === 503 || upstream === 429 ? 503 : 502;
+      const body = { statusCode, error: statusCode === 504 ? 'Gateway Timeout' : statusCode === 503 ? 'Service Unavailable' : 'Bad Gateway',
+        code: `VMI_${event.toUpperCase()}_${statusCode === 504 ? 'TIMEOUT' : 'UNAVAILABLE'}`,
+        message: 'Speech processing failed. Retry or continue using text.' };
+      throw statusCode === 504 ? new GatewayTimeoutException(body) : statusCode === 503 ? new ServiceUnavailableException(body) : new BadGatewayException(body);
+    }
+    finally { this.logger.log({ event, durationMs: Number((performance.now() - began).toFixed(3)) }); }
+  }
+
   async listSessions(userId: string, query: ListVmiSessionsQueryDto) {
     const { limit, offset } = query;
     const page = await this.repository.findManyByUserId(userId, { limit, offset });
@@ -338,6 +376,7 @@ export class VmiService {
     @Inject(VMI_SESSION_REPOSITORY) private readonly repository: VmiSessionRepository,
     @Inject(AI_PROVIDER) private readonly ai: AiProvider,
     @Inject(CV_PROVIDER) private readonly cv: CvProvider,
+    @Optional() @Inject(TTS_PROVIDER) private readonly tts?: TtsProvider,
   ) {}
 
   getOptions() {
