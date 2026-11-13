@@ -72,6 +72,11 @@ describe('WhisperSttProvider (mock HTTP)', () => {
     await expect(provider.transcribe(audio, VmiLanguage.VI)).rejects.toMatchObject({ status: 503 });
     expect(fetchMock).not.toHaveBeenCalled();
   });
+  it.each(['179999', '600001', 'bad'])('rejects invalid VMI_AUDIO_MAX_DURATION_MS %s with 503', async value => {
+    process.env.VMI_AUDIO_MAX_DURATION_MS = value;
+    await expect(provider.transcribe(audio, VmiLanguage.VI)).rejects.toMatchObject({ status: 503 });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });
 
 

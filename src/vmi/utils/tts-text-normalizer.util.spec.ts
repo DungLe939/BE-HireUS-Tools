@@ -29,6 +29,8 @@ describe('language-specific numeric punctuation and protected tokens', () => {
     ['999.999.999.999', 'chín trăm chín mươi chín tỷ chín trăm chín mươi chín triệu chín trăm chín mươi chín nghìn chín trăm chín mươi chín'],
     ['0,005', 'không phẩy không không năm'], ['1.000.000.000.000', '1.000.000.000.000'],
     ['12.34.567', '12.34.567'], ['2.500%', 'hai nghìn năm trăm phần trăm'],
+    ['1.000.5', '1.000.5'], ['12.34.56', '12.34.56'], ['-5', '-5'],
+    ['1.300.000.000.000', '1.300.000.000.000'],
   ])('reads Vietnamese %s consistently', (input, expected) => {
     expect(normalizeTtsText(input, VmiLanguage.VI)).toBe(expected);
   });

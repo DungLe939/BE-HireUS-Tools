@@ -25,7 +25,7 @@ function integer(raw: string): string {
 }
 
 // URL, labelled versions, semver suffixes, dates and IPv4 are opaque to TTS edits.
-const protectedTokens = /(?:[a-z][a-z0-9+.-]*:\/\/|www\.)[^\s<>]+|(?:version|phiên bản)\s+v?\d+(?:\.\d+)+(?:[-+][\w.-]+)?|\bv\d+(?:\.\d+)+(?:[-+][\w.-]+)?|\b\d+\.\d+\.\d+(?:-[\w.-]+(?:\+[\w.-]+)?|\+[\w.-]+)|\b(?:\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4})\b|\b(?:\d{1,3}\.){3}\d{1,3}\b/giu;
+const protectedTokens = /(?:[a-z][a-z0-9+.-]*:\/\/|www\.)[^\s<>]+|(?:version|phiên bản)\s+v?\d+(?:\.\d+)+(?:[-+][\w.-]+)?|\bv\d+(?:\.\d+)+(?:[-+][\w.-]+)?|\b\d+\.\d+\.\d+(?:-[\w.-]+(?:\+[\w.-]+)?|\+[\w.-]+)|\b(?:\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4})\b|(?<![\d.])(?:\d{1,3}\.){3}\d{1,3}(?![\d.])/giu;
 
 function normalizeSegment(text: string, language: VmiLanguage): string {
   let value = text.replace(/(?<![\p{L}\p{N}_./:-])\d(?:[\d.,]*\d)?(?![\p{L}\p{N}_/:-]|[.,]\d)/gu, raw => {

@@ -195,5 +195,34 @@ describe('VMI audio (fake providers, no external network)', () => {
     await failure;
     await transcribe(id).expect(200);
   });
-
+  it('accepts MIME with parameters and uppercase format', async () => {
+    const { id } = await seed();
+    await transcribe(id, 'audio/webm; codecs=opus').expect(200);
+    await transcribe(id, 'AUDIO/WAV; RATE=16000').expect(200);
+  });
+  it.each(['-1', 'abc', '16777216', '0'])('rejects invalid VMI_AUDIO_MAX_BYTES %s with 503', async raw => {
+    const { id } = await seed();
+    process.env.VMI_AUDIO_MAX_BYTES = raw;
+    const result = await transcribe(id).expect(503);
+    expect(result.body.code).toBe('VMI_STT_UNAVAILABLE');
+  });
+  it('rejects audio playback and transcription after session is finished (400)', async () => {
+    const { id, questionId } = await seed();
+    await request(app.getHttpServer()).post(`/vmi/sessions/${id}/finish`).set('x-mock-user-id', 'owner').expect(200);
+    await audio(id, questionId).expect(400);
+    await transcribe(id).expect(400);
+  });
+  it('coalesces concurrent playback failure and allows subsequent retry', async () => {
+    const { id, questionId } = await seed();
+    let reject!: (err: Error) => void;
+    jest.spyOn(tts, 'synthesize').mockImplementationOnce(() => new Promise((_r, j) => { reject = j; }));
+    const service = app.get(VmiService);
+    const first = service.synthesizeQuestion('owner', id, questionId);
+    const second = service.synthesizeQuestion('owner', id, questionId);
+    await new Promise(r => setImmediate(r));
+    reject(new BadGatewayException('temporary failure'));
+    await expect(first).rejects.toMatchObject({ status: 502 });
+    await expect(second).rejects.toMatchObject({ status: 502 });
+    await audio(id, questionId).expect(200);
+  });
 });
