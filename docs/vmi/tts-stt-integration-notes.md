@@ -112,11 +112,8 @@ Khóa được giải phóng sau thành công/lỗi; không khóa `/answers` ho�
 STT nằm ở `services/stt-whisper/`: FastAPI, `/health`, `/transcribe`, multipart
 `audio` + `language`. Nạp model một lần khi startup, CPU int8 mặc định.
 Model hiện dùng là alias **small** của faster-whisper, mặc định giống nhau trên
-CPU/CUDA/auto. Lựa chọn này theo quyết định re-review 14/11/2026 và số đo CPU
-người dùng cung cấp đến 180s (max khoảng 7,6s), đạt ngưỡng 10s cho các độ dài đã
-thử. Chưa kiểm chứng nhận diện tiếng Việt/thuật ngữ IT bằng giọng người thật;
-`medium` là hướng dự phòng chưa đo độ trễ. Giữ override env cho tương thích, không
-chọn model lớn hơn tự động. Nguồn mapping thư viện: [faster-whisper aliases](https://github.com/SYSTRAN/faster-whisper/blob/v1.2.1/faster_whisper/utils.py).
+CPU/CUDA/auto. Giọng thật trên CPU i5-12500H, 4 luồng, small/int8: các đoạn đến khoảng 20 giây mất khoảng 2–4,3 giây; đoạn 80 giây trung bình 12,4 giây, tối đa 13,2 giây. Số đo espeak trước đây (120s khoảng 5,2s; 180s khoảng 7,5–7,6s) là dữ liệu lịch sử không đại diện cho giọng thật, không chứng minh đạt NFR ở mọi độ dài. Nội suy thô: khoảng 45 giây còn biên an toàn, 60 giây sát trần; đây là ước lượng chưa đo, chưa cộng tinh chỉnh LLM. Trên bộ mẫu tiếng Việt, medium chậm hơn và kém chính xác hơn large-v3-turbo xét tổng thể, không còn là phương án dự phòng được khuyến nghị. Giữ small và khả năng override model; chưa đo GPU.
+Nguồn mapping thư viện: [faster-whisper aliases](https://github.com/SYSTRAN/faster-whisper/blob/v1.2.1/faster_whisper/utils.py).
 Model và runtime faster-whisper: MIT. [Hướng dẫn CPU](../../services/stt-whisper/README.md).
 
 Các provider đọc env khi gọi, không đọc `.env` trong test/Python. Lỗi chỉ trả mã
@@ -261,7 +258,7 @@ trả lời tự nhiên hoặc thuật ngữ IT. Không dùng các số này đ�
 lượng tiếng Việt giảm/tăng trên giọng thật. Cần corpus người thật có transcript
 chuẩn, cả vi/en và thuật ngữ, trước quyết định production.
 
-Theo mốc **10s cho chờ STT đến khoảng 30s**, small mặc định và large/fast đều có
+Trong bộ espeak lịch sử, theo mốc **10s cho chờ STT đến khoảng 30s**, small mặc định và large/fast đều có
 3/3 HTTP 200 dưới 10s ở 5/15/30s trong mẫu này. Small/fast ở 60s có một lần 422;
 large/fast ở 60s có max vượt 10s. Kết quả latency đạt không khắc phục WER xấu.
 Cấu hình hiện dùng: **small cho cả CPU và CUDA**; giữ bước sửa/gõ text.
@@ -375,14 +372,9 @@ benchmark request deadline mặc định 60s. Có thể override bằng env/CLI 
 Test phủ thiếu biến, alias trắng, giá trị hợp lệ, ưu tiên, cấu hình không hợp lệ
 của cả hai biến và abort thực trả 504 sạch.
 
-Căn cứ theo số đo CPU small do người dùng cung cấp trong re-review: clip 180s
-mất tối đa khoảng **7,6s**, không phải phép đo mới của lần sửa này. 60s có biên
-so với số đó và tránh để người dùng chờ 10 phút khi service treo. Python không
-có deadline inference khác để mâu thuẫn; ffprobe/ffmpeg có timeout xử lý 10s/bước,
-không phải giới hạn độ dài clip. Cap audio mặc định 195s giữ nguyên. Hai phase
-cap 20s cộng inference 7,6s vẫn nhỏ hơn deadline 60s; ngoại suy tuyến tính tới
-195s chỉ là ước lượng, chưa phải đo riêng clip 195s. Test giải mã vượt cap vẫn
-trả 422, không bị đổi thành timeout. Không đổi timeout phase khi chưa có căn cứ.
+Giọng thật trên CPU i5-12500H, 4 luồng, small/int8: các đoạn đến khoảng 20 giây mất khoảng 2–4,3 giây; đoạn 80 giây trung bình 12,4 giây, tối đa 13,2 giây. Số đo espeak trước đây (120s khoảng 5,2s; 180s khoảng 7,5–7,6s) là dữ liệu lịch sử không đại diện cho giọng thật, không chứng minh đạt NFR ở mọi độ dài. Nội suy thô: khoảng 45 giây còn biên an toàn, 60 giây sát trần; đây là ước lượng chưa đo, chưa cộng tinh chỉnh LLM. Trên bộ mẫu tiếng Việt, medium chậm hơn và kém chính xác hơn large-v3-turbo xét tổng thể, không còn là phương án dự phòng được khuyến nghị. Giữ small và khả năng override model; chưa đo GPU.
+
+**Quyết định mở — NFR-VMI-01 và câu trả lời dài:** mục tiêu chờ STT 10 giây chưa được bảo đảm cho mọi câu trả lời tối đa 180 giây (BR-VMI-03, FR-VMI-14). Bản NFR hiện hành mô tả clip thông thường khoảng 30 giây; chưa có quyết định xử lý clip dài. Các hướng cần nhóm/người dùng chọn: giới hạn ghi âm; chấp nhận chờ lâu hơn với câu dài và hiển thị tiến trình; gửi từng đoạn khi đang ghi âm. Chưa chọn hướng nào, không đổi nghiệp vụ, cap audio 195s hay state machine. Deadline HTTP 60s chỉ là chốt lỗi, không chứng minh đạt NFR. Phần chờ AI + TTS chưa được xác nhận đạt.
 
 Benchmark giữ startup readiness 600s cho tải/nạp model trước health, không nằm
 trong lần chờ STT. Nếu chủ động override sang model lớn trên CPU thì phải tăng
@@ -398,12 +390,9 @@ env vẫn hợp lệ (base/medium/large-v3-turbo/custom như trước) nhưng kh
 nào tự chọn large. Benchmark CLI mặc định chỉ `small`; smoke và Nest chỉ gọi
 service STT nên không tự lựa chọn model. Các bảng large cũ được giữ làm lịch sử.
 
-Lý do chọn small theo số đo người dùng cung cấp 14/11/2026: đạt NFR-VMI-01 10s
-trên CPU ở các độ dài đã kiểm tra tới 180s, max khoảng 7,6s cho clip 180s. Đây là
-bằng chứng do re-review cung cấp, không phải benchmark mới ở lượt này. Chưa thử
-riêng 195s hoặc giọng người thật. Chất lượng tiếng Việt/thuật ngữ IT còn cần kiểm
-chứng; medium là phương án dự phòng chưa đo độ trễ, không phải khuyến nghị đã đạt.
+**Đính chính theo giọng thật (14/11/2026):** Giọng thật trên CPU i5-12500H, 4 luồng, small/int8: các đoạn đến khoảng 20 giây mất khoảng 2–4,3 giây; đoạn 80 giây trung bình 12,4 giây, tối đa 13,2 giây. Số đo espeak trước đây (120s khoảng 5,2s; 180s khoảng 7,5–7,6s) là dữ liệu lịch sử không đại diện cho giọng thật, không chứng minh đạt NFR ở mọi độ dài. Nội suy thô: khoảng 45 giây còn biên an toàn, 60 giây sát trần; đây là ước lượng chưa đo, chưa cộng tinh chỉnh LLM. Trên bộ mẫu tiếng Việt, medium chậm hơn và kém chính xác hơn large-v3-turbo xét tổng thể, không còn là phương án dự phòng được khuyến nghị. Giữ small và khả năng override model; chưa đo GPU.
 
+**Quyết định mở — NFR-VMI-01 và câu trả lời dài:** mục tiêu chờ STT 10 giây chưa được bảo đảm cho mọi câu trả lời tối đa 180 giây (BR-VMI-03, FR-VMI-14). Bản NFR hiện hành mô tả clip thông thường khoảng 30 giây; chưa có quyết định xử lý clip dài. Các hướng cần nhóm/người dùng chọn: giới hạn ghi âm; chấp nhận chờ lâu hơn với câu dài và hiển thị tiến trình; gửi từng đoạn khi đang ghi âm. Chưa chọn hướng nào, không đổi nghiệp vụ, cap audio 195s hay state machine. Deadline HTTP 60s chỉ là chốt lỗi, không chứng minh đạt NFR. Phần chờ AI + TTS chưa được xác nhận đạt.
 
 ### Kiểm tra kết thúc re-review 14/11/2026
 
@@ -420,3 +409,12 @@ service; notes này. Tài liệu phối hợp: PROJECT_CONTEXT, VMI_CONTEXT, đ�
 Không đọc/sửa `.env`, không push. Chưa đo lại clip 180s/195s hoặc GPU, chưa xác
 minh chất lượng giọng thật/IT; thông tin small 180s và large 180s bị nhiễu được
 quy nguồn cho re-review của người dùng, không tự tạo số đo mới.
+
+
+## STT spelling refinement — OpenAPI 0.9.0
+
+`/transcribe` trả thêm `rawText` luôn có và `refined`; `text` là bản được chốt chặn chấp nhận hoặc bản gốc. Không tự nộp câu trả lời, không đổi prompt chấm điểm; `/answers` vẫn nhận bản ứng viên xác nhận. `VMI_STT_REFINE_ENABLED=false` mặc định, timeout riêng 4000ms; kiểm tra Levenshtein theo từ <=0,35 và tỷ lệ ký tự 0,7..1,3. Cấu hình không hợp lệ, mạng/HTTP/định dạng/rỗng/timeout đều fallback. Chốt chặn mức độ sửa không chứng minh đúng nghĩa; bản sửa ít từ vẫn có thể sai, nên cần đo sửa nhầm và giữ bước xác nhận. Không log nội dung/prompt; chỉ event và durationMs.
+
+Phiên không CV không có CV trong prompt. Phiên có CV chỉ trích các tên công nghệ khớp danh mục, không gửi summary. Cấu trúc snapshot hiện có chỉ chứa summary nên chưa thể lấy kỹ năng có cấu trúc.
+
+Whisper `WHISPER_INITIAL_PROMPT` mặc định rỗng; tối đa 1000 ký tự, không chứa ký tự điều khiển. faster-whisper cài đặt 1.2.1 hỗ trợ `hotwords` qua chữ ký `WhisperModel.transcribe`, nhưng chưa dùng/thử hotwords. Không bật initial_prompt và chưa tuyên bố giảm lỗi hoặc tránh bịa từ khóa.
