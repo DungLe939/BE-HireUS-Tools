@@ -37,13 +37,19 @@ trades accuracy for speed. The previous fast profile (beam1/VAD on/conditioning
 off) worsened small's synthetic WER, so it is configurable but not the default.
 CUDA keeps large-v3-turbo/float16; GPU speed has not been measured.
 
-Nest uses `WHISPER_STT_BASE_URL` and a **600000 ms** HTTP deadline by default.
+Nest uses `WHISPER_STT_BASE_URL` and a **60000 ms** HTTP deadline by default.
 Existing `WHISPER_STT_TIMEOUT_MS` is retained; nonempty `VMI_STT_TIMEOUT_MS` takes
-precedence. This is a transport budget for long CPU recordings, not the 10-second
-NFR target. A real abort returns clean 504. The 180-second case has not been
-benchmarked; do not claim a universal timeout guarantee. Configure from measured
-worst real-time factor × duration + upload/decode margin on target hardware.
-An HTTP timeout cannot stop a running native CTranslate2 operation.
+precedence. The re-review supplied a CPU `small` measurement up to 180 seconds
+with maximum processing time about 7.6s; this task did not repeat that recording.
+A 60s deadline leaves headroom and returns clean 504 if STT hangs. It is separate
+from the 10s NFR target. Python has no competing inference deadline; its two
+ffprobe/ffmpeg phases each have a 10s processing timeout, not an audio-duration
+limit. The default 195s recording cap remains unchanged. Budgeting both phase
+caps plus the supplied inference time still leaves substantial headroom in 60s.
+Startup/model download has a separate 600s benchmark readiness budget, outside
+a student's STT request. If explicitly selecting a larger CPU model, increase
+the HTTP deadline based on measurements first. A timeout cannot interrupt native
+CTranslate2; the existing overload gate remains held until native work finishes.
 
 Upload limits are 15 MiB and 195 seconds (180 + 15 margin). Byte limit can be
 lowered; duration can be 180000..600000 ms. Use identical `VMI_AUDIO_MAX_BYTES`

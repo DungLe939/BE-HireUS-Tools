@@ -10,7 +10,7 @@ SMOKE_LANGUAGE=${SMOKE_LANGUAGE:-vi}
 export SMOKE_LANGUAGE
 STT_SECONDS=$(python3 - <<'PY'
 import os
-raw = os.environ.get('VMI_STT_TIMEOUT_MS') or os.environ.get('WHISPER_STT_TIMEOUT_MS', '600000')
+raw = os.environ.get('VMI_STT_TIMEOUT_MS', '').strip() or os.environ.get('WHISPER_STT_TIMEOUT_MS', '60000')
 print((int(raw) + 999) // 1000)
 PY
 )

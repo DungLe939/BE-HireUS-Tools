@@ -258,13 +258,11 @@ large/fast ở 60s có max vượt 10s. Kết quả latency đạt không khắc
 Khuyến nghị máy dev CPU: small mặc định để thử luồng, bật sửa/gõ text; GPU: giữ
 large-v3-turbo/float16 và đo lại, không hứa 10s khi chưa có GPU benchmark.
 
-Timeout HTTP mặc định nâng lên **600000 ms** để chừa thời gian clip dài trên CPU;
-`VMI_STT_TIMEOUT_MS` không rỗng ưu tiên, nếu thiếu dùng `WHISPER_STT_TIMEOUT_MS`
-hiện có. Giữ mọi cấu hình cũ explicit, không âm thầm ghi đè. Timeout vẫn trả 504
-sạch. 600s là ngân sách vận hành, không phải mốc nghiệm thu NFR. Chưa đo 180s nên
-không hứa mọi clip 180s sẽ xong trong 600s. Khi có giọng thật, chọn timeout >= RTF
-xấu nhất × 180s + biên decode/upload; không dựa vào duration client chưa xác minh.
-
+Timeout HTTP hiện tại là **60000 ms** (re-review 14/11/2026). Alias
+`VMI_STT_TIMEOUT_MS` không rỗng ưu tiên, sau đó `WHISPER_STT_TIMEOUT_MS`, cuối cùng
+mặc định 60s. Quyết định này thay ngân sách 600s của bản trước. Timeout vận hành
+khác mục tiêu NFR 10s; tăng timeout nếu chủ động dùng model lớn hơn trên CPU,
+dựa vào đo thực tế, không suy từ độ dài audio client tự khai báo.
 
 ## Review: shutdown và kiểm tra cuối
 
@@ -357,3 +355,26 @@ Cố ý giữ các kết quả tìm có số 5 nhưng không phải tiêu chí �
 
 README gốc, comment code và OpenAPI không có mốc NFR 5 giây cần sửa. Không thay
 các timeout test 5 ms hoặc clip mẫu thành ngưỡng NFR mới.
+
+
+### 3. Timeout STT 60 giây
+
+Đặt mặc định NestJS và fallback `WHISPER_STT_TIMEOUT_MS` là **60000 ms**; biến
+`VMI_STT_TIMEOUT_MS` vẫn được ưu tiên khi không rỗng. Script smoke cũng dùng 60s,
+benchmark request deadline mặc định 60s. Có thể override bằng env/CLI như trước.
+Test phủ thiếu biến, alias trắng, giá trị hợp lệ, ưu tiên, cấu hình không hợp lệ
+của cả hai biến và abort thực trả 504 sạch.
+
+Căn cứ theo số đo CPU small do người dùng cung cấp trong re-review: clip 180s
+mất tối đa khoảng **7,6s**, không phải phép đo mới của lần sửa này. 60s có biên
+so với số đó và tránh để người dùng chờ 10 phút khi service treo. Python không
+có deadline inference khác để mâu thuẫn; ffprobe/ffmpeg có timeout xử lý 10s/bước,
+không phải giới hạn độ dài clip. Cap audio mặc định 195s giữ nguyên. Hai phase
+cap 20s cộng inference 7,6s vẫn nhỏ hơn deadline 60s; ngoại suy tuyến tính tới
+195s chỉ là ước lượng, chưa phải đo riêng clip 195s. Test giải mã vượt cap vẫn
+trả 422, không bị đổi thành timeout. Không đổi timeout phase khi chưa có căn cứ.
+
+Benchmark giữ startup readiness 600s cho tải/nạp model trước health, không nằm
+trong lần chờ STT. Nếu chủ động override sang model lớn trên CPU thì phải tăng
+HTTP timeout theo số đo. Native inference đang treo vẫn cần khởi động lại worker;
+HTTP trả 504 không thể dừng CTranslate2, cơ chế gate hiện tại được giữ nguyên.

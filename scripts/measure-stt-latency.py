@@ -156,7 +156,7 @@ if __name__ == '__main__':
     parser.add_argument('--profiles', nargs='+', choices=['fast', 'comparison'])
     parser.add_argument('--output-dir', type=Path, default=Path('/tmp/hireus-stt-benchmark'))
     parser.add_argument('--cache-dir', type=Path, default=Path('/tmp/hireus-stt-models'))
-    parser.add_argument('--request-timeout', type=float, default=600)
+    parser.add_argument('--request-timeout', type=float, default=60)
     parser.add_argument('--startup-timeout', type=float, default=600)
     args = parser.parse_args()
     if args.repeats < 3 or not 1 <= args.threads <= 64: parser.error('Use >=3 repeats and 1..64 CPU threads.')
