@@ -295,3 +295,28 @@ Quyết định NFR 10s đã đồng bộ PROJECT_CONTEXT, VMI_CONTEXT, đặc t
 Analysis Markdown/HTML và README nguồn. Bản ghép nguyên văn giữ mốc cũ có chú thích
 lịch sử, không dùng làm tiêu chí mới. TASKS.md local không được sửa theo giới hạn
 đã đặt ở đầu tác vụ. Không thay máy trạng thái, AI/prompt/điểm, endpoint cũ hoặc FE.
+
+## Re-review 14/11/2026 — bốn việc còn lại
+
+### 1. Regex IPv4 và số lớn
+
+HEAD đầu việc `098c979` đã có regex biên độc lập
+`(?<![\d.])(?:\d{1,3}\.){3}\d{1,3}(?![\d.])`; không thay lại logic chuẩn hóa.
+Backend bắt đầu sạch, kể cả file test reviewer (các ca reviewer đã nằm trong commit).
+Bổ sung sáu regression tests cho vi/en: `1.300.000.000.000`,
+`999.999.999.999.999` và IPv4 hợp lệ trong câu. Các số quá 12 chữ số giữ nguyên
+**toàn bộ**, không cắt một phần thành IPv4 rồi để lại đuôi; quy tắc dấu chấm/phẩy
+không đổi. Unit util: 50/50 pass, gồm toàn bộ ca reviewer.
+
+Đo Node v24.22.3, ba lần/mẫu; mỗi lần chạy cả vi và en (ms cho cặp hai lần gọi):
+
+| Mẫu | Ký tự | Trung bình | Lớn nhất |
+| --- | --- | --- | --- |
+| `1.` lặp + chữ số cuối | 12001 | 0.663 ms | 1.295 ms |
+| `999.` lặp + nhóm cuối | 16003 | 0.930 ms | 1.149 ms |
+| Toàn dấu chấm | 12000 | 0.058 ms | 0.064 ms |
+| `a.` lặp | 12000 | 63.949 ms | 65.048 ms |
+
+Không thấy treo/ReDoS ở các mẫu đã thử; đây là số đo mẫu, không phải chứng minh
+mọi biểu thức còn lại luôn có độ phức tạp tuyến tính. Regex IPv4 có số lượng nhóm
+và chiều dài mỗi nhóm bị chặn; không chỉnh các nhánh chuẩn hóa ngoài phạm vi.

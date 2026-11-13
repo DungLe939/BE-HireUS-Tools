@@ -49,3 +49,16 @@ describe('language-specific numeric punctuation and protected tokens', () => {
     for (const language of [VmiLanguage.VI, VmiLanguage.EN]) expect(normalizeTtsText(input, language)).toBe(input);
   });
 });
+
+describe('re-review: IPv4 must cover a whole token', () => {
+  it.each([
+    [VmiLanguage.VI, '1.300.000.000.000', '1.300.000.000.000'],
+    [VmiLanguage.EN, '1.300.000.000.000', '1.300.000.000.000'],
+    [VmiLanguage.VI, '999.999.999.999.999', '999.999.999.999.999'],
+    [VmiLanguage.EN, '999.999.999.999.999', '999.999.999.999.999'],
+    [VmiLanguage.VI, 'Máy chủ ở 192.168.1.1 đang chạy.', 'Máy chủ ở 192.168.1.1 đang chạy.'],
+    [VmiLanguage.EN, 'The server at 192.168.1.1 is running.', 'The server at 192.168.1.1 is running.'],
+  ])('preserves the complete %s token: %s', (language, input, expected) => {
+    expect(normalizeTtsText(input, language)).toBe(expected);
+  });
+});
