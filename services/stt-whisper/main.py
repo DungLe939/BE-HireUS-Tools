@@ -64,6 +64,7 @@ class WhisperConfig:
     beam_size: int
     vad_filter: bool
     condition_on_previous_text: bool
+    initial_prompt: str = ""
 
 
 def whisper_config():
@@ -88,10 +89,13 @@ def whisper_config():
     compute = os.environ.get('WHISPER_COMPUTE_TYPE', 'float16' if device == 'cuda' else 'int8')
     if compute not in ('default', 'auto', 'int8', 'int8_float32', 'int8_float16', 'int8_bfloat16', 'int16', 'float16', 'bfloat16', 'float32'):
         raise ValueError('Invalid WHISPER_COMPUTE_TYPE.')
+    initial_prompt = os.environ.get('WHISPER_INITIAL_PROMPT', '')
+    if len(initial_prompt) > 1000 or any(ord(char) < 32 or ord(char) == 127 for char in initial_prompt):
+        raise ValueError('Invalid WHISPER_INITIAL_PROMPT.')
     return WhisperConfig(model, device, compute,
         integer_setting('WHISPER_CPU_THREADS', available_cpu_threads(), 1, 64),
         integer_setting('WHISPER_BEAM_SIZE', 5, 1, 10),
-        flag('WHISPER_VAD_FILTER', False), flag('WHISPER_CONDITION_ON_PREVIOUS_TEXT', True))
+        flag('WHISPER_VAD_FILTER', False), flag('WHISPER_CONDITION_ON_PREVIOUS_TEXT', True), initial_prompt.strip())
 
 
 def create_model(config):
@@ -238,7 +242,8 @@ def recognize(data, mime, language):
         samples = decode_audio(data, mime, max_ms)
         config = getattr(app.state, 'config', None) or whisper_config()
         segments, _ = app.state.model.transcribe(samples, language=language, task="transcribe", beam_size=config.beam_size,
-                                                vad_filter=config.vad_filter, condition_on_previous_text=config.condition_on_previous_text)
+                                                vad_filter=config.vad_filter, condition_on_previous_text=config.condition_on_previous_text,
+                                                **({"initial_prompt": config.initial_prompt} if config.initial_prompt else {}))
         # faster-whisper is lazy: inference finishes only after consuming segments.
         text = " ".join(segment.text.strip() for segment in segments).strip()
         if not text:

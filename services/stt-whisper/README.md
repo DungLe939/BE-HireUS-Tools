@@ -30,27 +30,32 @@ returns a draft, and never submits `/answers` automatically.
 | WHISPER_BEAM_SIZE | 5; integer 1..10 |
 | WHISPER_VAD_FILTER | false; true/false |
 | WHISPER_CONDITION_ON_PREVIOUS_TEXT | true; true/false |
+| WHISPER_INITIAL_PROMPT | Empty/off; optional keyword string, max 1000 characters, no control characters |
 | WHISPER_MODEL_CACHE | Optional writable model cache directory |
 
 The auto thread cap leaves capacity for Nest and decoding. A smaller CPU model
 trades accuracy for speed. The previous fast profile (beam1/VAD on/conditioning
 off) worsened small's synthetic WER, so it is configurable but not the default.
 The configured model is **small for every device** (CPU int8, CUDA float16).
-The re-review supplied CPU measurements through 180s with max about 7.6s, below
-the 10s STT target across those tested answer lengths. This task did not repeat
-them. Real human Vietnamese/IT-term accuracy remains unverified; medium is an
-unmeasured fallback direction. No larger model is recommended or selected by
-default; override support is retained for compatibility. GPU speed is unmeasured.
+Real human voice on i5-12500H CPU, four threads: clips up to about 20s take
+2–4.3s; the 80s clip averages 12.4s (max 13.2s). Earlier espeak results
+(120s: 5.2s; 180s: 7.5–7.6s) are historical and not representative of human
+voice. They do not establish the 10s NFR through 180s. Rough interpolation
+suggests 45s has headroom and 60s is near the limit; neither duration has been
+measured with real voice. Refinement adds latency. Medium was slower and less
+accurate overall than large-v3-turbo on these Vietnamese samples and is no
+longer a recommended fallback. GPU remains unmeasured.
+
+Open decision: reconcile NFR-VMI-01 (10s, ordinary ~30s clips) with BR-VMI-03 /
+FR-VMI-14 (180s answers): limit recording, allow longer waits with progress,
+or send chunks during recording. No option is selected; business rules remain.
 
 Nest uses `WHISPER_STT_BASE_URL` and a **60000 ms** HTTP deadline by default.
 Existing `WHISPER_STT_TIMEOUT_MS` is retained; nonempty `VMI_STT_TIMEOUT_MS` takes
-precedence. The re-review supplied a CPU `small` measurement up to 180 seconds
-with maximum processing time about 7.6s; this task did not repeat that recording.
-A 60s deadline leaves headroom and returns clean 504 if STT hangs. It is separate
-from the 10s NFR target. Python has no competing inference deadline; its two
-ffprobe/ffmpeg phases each have a 10s processing timeout, not an audio-duration
-limit. The default 195s recording cap remains unchanged. Budgeting both phase
-caps plus the supplied inference time still leaves substantial headroom in 60s.
+precedence. This is a failure deadline, separate from the 10s NFR target.
+Python inference has no competing deadline; ffprobe/ffmpeg each have a 10s
+processing timeout. The 195s recording cap is unchanged. There is no measured
+end-to-end guarantee for a 180s human recording.
 Startup/model download has a separate 600s benchmark readiness budget, outside
 a student's STT request. If explicitly selecting a larger CPU model, increase
 the HTTP deadline based on measurements first. A timeout cannot interrupt native
@@ -111,3 +116,8 @@ work and is not a deployment recommendation. Sources: [faster-whisper alias mapp
 [CTranslate2 unload API](https://opennmt.net/CTranslate2/python/ctranslate2.models.Whisper.html#ctranslate2.models.Whisper.unload_model),
 [tqdm public lock API](https://tqdm.github.io/docs/tqdm/#set_lock).
 Model and faster-whisper are MIT licensed; preserve notices when redistributing.
+
+`WHISPER_INITIAL_PROMPT` is passed only when nonempty. Keep it disabled until a
+paired real-voice comparison checks accuracy and hallucinated keywords. Installed
+faster-whisper 1.2.1 supports `hotwords` (signature inspected), but it is unused.
+Nest's optional Gemini refinement runs after STT; see the integration notes.

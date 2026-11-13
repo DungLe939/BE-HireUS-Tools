@@ -45,6 +45,17 @@ class WhisperTests(unittest.TestCase):
             self.assertEqual(main.app.state.model.transcribe.call_args.kwargs["language"], language)
             self.assertEqual(main.app.state.model.transcribe.call_args.kwargs["task"], "transcribe")
 
+    def test_initial_prompt_is_only_forwarded_when_configured(self):
+        from dataclasses import replace
+        config = main.whisper_config()
+        for value in ('', 'Redis, Jest'):
+            main.app.state.model.transcribe.return_value = (iter([SimpleNamespace(text='Draft')]), None)
+            with patch.object(main, 'decode_audio', return_value=np.zeros(16000)), patch.object(main, 'whisper_config', return_value=replace(config, initial_prompt=value)):
+                main.recognize(b'fixture', 'audio/wav', 'vi')
+            kwargs = main.app.state.model.transcribe.call_args.kwargs
+            if value: self.assertEqual(kwargs['initial_prompt'], 'Redis, Jest')
+            else: self.assertNotIn('initial_prompt', kwargs)
+
     def test_empty_result_and_model_failure_release_lock(self):
         for result, status in [(iter([]), 422), (None, 503)]:
             main.app.state.model.transcribe.return_value = (result, None)

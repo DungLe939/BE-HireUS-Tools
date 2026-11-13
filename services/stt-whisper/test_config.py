@@ -54,3 +54,12 @@ class WhisperConfigTests(unittest.TestCase):
         for device in ('cpu', 'cuda', 'auto'):
             with self.subTest(device=device):
                 self.assertEqual(self.config(WHISPER_DEVICE=device).model, 'small')
+
+    def test_initial_prompt_defaults_empty_and_accepts_keywords(self):
+        self.assertEqual(self.config().initial_prompt, '')
+        self.assertEqual(self.config(WHISPER_INITIAL_PROMPT='  Redis, PostgreSQL, Jest  ').initial_prompt, 'Redis, PostgreSQL, Jest')
+
+    def test_initial_prompt_rejects_oversize_and_control_characters(self):
+        for value in ['x' * 1001, 'Redis\nJest', 'Redis\x00Jest', 'Redis\x7f']:
+            with self.subTest(value=repr(value)), self.assertRaises(ValueError):
+                self.config(WHISPER_INITIAL_PROMPT=value)
