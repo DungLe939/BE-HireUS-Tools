@@ -320,3 +320,40 @@ không đổi. Unit util: 50/50 pass, gồm toàn bộ ca reviewer.
 Không thấy treo/ReDoS ở các mẫu đã thử; đây là số đo mẫu, không phải chứng minh
 mọi biểu thức còn lại luôn có độ phức tạp tuyến tính. Regex IPv4 có số lượng nhóm
 và chiều dài mỗi nhóm bị chặn; không chỉnh các nhánh chuẩn hóa ngoài phạm vi.
+
+
+### 2. Kiểm kê NFR-VMI-01
+
+Định nghĩa lấy nguyên câu kỹ thuật từ `Requirements_Analysis.md`:
+
+> Khi mạng ổn định, mỗi lần chờ không quá 10 giây: (a) từ lúc gửi audio đến lúc nhận văn bản STT, với clip trả lời thông thường đến khoảng 30 giây; (b) từ lúc nộp POST /answers đến khi có audio câu hỏi tiếp theo, gồm AI sinh câu hỏi và TTS. Không tính thời gian người dùng xác nhận/chỉnh sửa văn bản giữa hai bước.
+
+Tìm toàn bộ backend, documents và README (kể cả comment/OpenAPI, bỏ dependencies,
+build output và `.env`). Trong HEAD hiện tại, các dòng TASKS 17/313/323/342/347/
+360/416/429 đã dùng 10s; không còn khoảng mười mốc 5s như mô tả review cũ.
+Còn hai phát biểu lỗi thời ở TASKS 427 và 428: sửa thành trạng thái đặc tả hiện
+hành và định nghĩa nguyên văn ở trên. Làm rõ các chỗ còn diễn đạt “tổng chu trình”:
+
+| Vị trí TASKS.md trước sửa | Xử lý |
+| --- | --- |
+| 17 | Chép định nghĩa hai lần chờ, gồm khoảng 30s và loại thời gian xác nhận |
+| 313, 347 | Dẫn về định nghĩa chuẩn tại Tổng quan |
+| 323, 342 | TTS đóng góp vào lần chờ (b), không vào một tổng STT + AI + TTS |
+| 360 | STT thuộc lần chờ (a) |
+| 416 | Tách rõ (a) và (b) |
+| 427, 428 | Bỏ hai câu còn nói đặc tả hiện hành dùng mốc cũ |
+| 429 | Không cộng hai lần chờ thành tổng |
+
+Cố ý giữ các kết quả tìm có số 5 nhưng không phải tiêu chí đang áp dụng:
+
+- Notes dòng 12: mốc trước đây được nhãn rõ là lịch sử, không có hiệu lực.
+- Notes các dòng 217, 234, 238, 249, 283: clip đo **5 giây/5s**, không phải ngưỡng NFR.
+- Notes dòng 244: **15 giây** của bài đối chứng, không phải 5 giây.
+- Notes dòng 285: thời gian chờ tracker flush **0,5s**, không phải NFR.
+- Notes dòng 105, service README dòng 48, VMI_CONTEXT dòng 285: giới hạn audio
+  **195 giây**, không phải latency 5 giây.
+- `documents/docs/Week02/Submission/README.md:54`: chú thích mốc 4s/5s chỉ là lịch
+  sử, đã nói rõ không còn áp dụng. Bản ghép nguyên văn cũng giữ 4s với chú thích.
+
+README gốc, comment code và OpenAPI không có mốc NFR 5 giây cần sửa. Không thay
+các timeout test 5 ms hoặc clip mẫu thành ngưỡng NFR mới.

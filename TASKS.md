@@ -14,7 +14,7 @@
   - **Database tạm:** PostgreSQL/Prisma do thành viên khác phụ trách. Dùng `VmiSessionRepository` interface + `InMemoryVmiSessionRepository` để sau thay bằng Prisma mà không sửa `VmiService`.
   - **Phân hệ CV/Profile:** Chờ phân hệ thật. Trường `cvId` là tùy chọn; chừa `CvProvider` interface + `EmptyCvProvider` rỗng. Chế độ không CV (`FR-VMI-04`) chạy bình thường; khi có CV thì lưu **bản chụp (`cvSnapshot`)** ngay thời điểm tạo phiên (`FR-VMI-23`).
   - **OpenAPI Contract:** Backend sở hữu contract tại `backend/contracts/vmi.openapi.yaml` (không cài `@nestjs/swagger` nếu không được yêu cầu). Viết/cập nhật contract trước khi code cho mỗi nhóm endpoint.
-  - **Độ trễ chính thức (`NFR-VMI-01`):** **10 giây cho từng lần chờ** (chờ STT; chờ AI sinh câu hỏi + TTS trong điều kiện mạng ổn định, sau khi tách STT độc lập khỏi `/answers`).
+  - **Độ trễ chính thức (`NFR-VMI-01`):** Khi mạng ổn định, mỗi lần chờ không quá 10 giây: (a) từ lúc gửi audio đến lúc nhận văn bản STT, với clip trả lời thông thường đến khoảng 30 giây; (b) từ lúc nộp POST /answers đến khi có audio câu hỏi tiếp theo, gồm AI sinh câu hỏi và TTS. Không tính thời gian người dùng xác nhận/chỉnh sửa văn bản giữa hai bước. (Theo `Requirements_Analysis.md` hiện hành.)
   - **Audio (STT/TTS):** Tách riêng `SttProvider` và `TtsProvider`, không gộp vào `AiProvider`. Đề xuất mặc định là **REST theo từng lượt** (upload file ghi âm 1 câu trả lời để STT trả text nháp cho bước xác nhận `FR-VMI-13`; endpoint riêng trả audio TTS cho từng câu hỏi), vì luồng nghiệp vụ yêu cầu người dùng xác nhận văn bản trước khi nộp; WebSocket/WebRTC chỉ xét nếu chuyển sang hội thoại liên tục. Nhà cung cấp STT/TTS **chưa chốt** — bắt buộc tra tài liệu kiểm tra chất lượng tiếng Việt, độ trễ và chốt trước khi code Task 7 và Task 8.
   - **Spec Kit:** Không chạy các lệnh `speckit-*` (chỉ có script `.ps1`, môi trường hiện tại chạy Fedora Linux).
 - **Phân định phạm vi Backend vs Frontend cho phần thiết bị âm thanh:**
@@ -310,7 +310,7 @@ Quy tắc chung cho Codex:
 ## Task 7: Tích hợp TTS phát giọng nói câu hỏi
 
 - **Mục tiêu:** Định nghĩa `TtsProvider` tách riêng khỏi `AiProvider` và cung cấp API chuyển câu hỏi của phiên thành âm thanh theo ngôn ngữ (`vi`/`en`), hỗ trợ phát lại khi người dùng chưa nghe rõ.
-- **FR/BR/NFR liên quan:** `FR-VMI-11`, `NFR-VMI-01` (độ trễ <= 10s cho từng lần chờ), `NFR-VMI-02` (song ngữ), `NFR-VMI-03` (bảo mật & ownership), `U002` (nhắc lại câu hỏi).
+- **FR/BR/NFR liên quan:** `FR-VMI-11`, `NFR-VMI-01` (theo định nghĩa từng lần chờ ở Tổng quan), `NFR-VMI-02` (song ngữ), `NFR-VMI-03` (bảo mật & ownership), `U002` (nhắc lại câu hỏi).
 - **Làm:**
   - **Bước tiên quyết:** Tra tài liệu chính thức của nhà cung cấp TTS đã được người dùng chốt về chất lượng tiếng Việt, tiếng Anh, độ trễ và format audio.
   - Tạo `TtsProvider` interface (`backend/src/vmi/interfaces/tts-provider.interface.ts`) và implementation theo nhà cung cấp đã chọn (đọc API key/config từ `process.env`, cập nhật biến mẫu vào `backend/.env.example`, timeout và không log key).
@@ -320,7 +320,7 @@ Quy tắc chung cho Codex:
 - **Không làm:** Không gộp `TtsProvider` vào `AiProvider`; không lưu file audio xuống đĩa cục bộ nếu chưa có yêu cầu; không dùng key thật trong code hoặc test.
 - **Phụ thuộc và điều kiện trước khi bắt đầu:** Task 3 hoàn thành + **Người dùng đã chốt nhà cung cấp TTS** sau bước tra tài liệu chất lượng tiếng Việt & độ trễ.
 - **Quyết định còn mở (Quyết định cần người dùng chốt trước khi làm):**
-  1. **Chọn nhà cung cấp TTS:** Chốt dùng dịch vụ nào (ví dụ Google Cloud TTS, OpenAI TTS, ElevenLabs, Gemini TTS hoặc mô hình Hugging Face/Zonos) sau khi tra tài liệu kiểm tra chất lượng phát âm **tiếng Việt**, tiếng Anh và độ trễ đóng góp vào giới hạn `<= 10 giây` (`NFR-VMI-01`).
+  1. **Chọn nhà cung cấp TTS:** Chốt dùng dịch vụ nào (ví dụ Google Cloud TTS, OpenAI TTS, ElevenLabs, Gemini TTS hoặc mô hình Hugging Face/Zonos) sau khi tra tài liệu kiểm tra chất lượng phát âm **tiếng Việt**, tiếng Anh và độ trễ lần chờ (b), từ lúc nộp `/answers` đến khi có audio câu hỏi tiếp theo (AI + TTS) (`NFR-VMI-01`).
   2. **Kiểu trả dữ liệu:** Trả nhị phân `audio/mpeg` (hoặc `audio/wav`) trực tiếp qua HTTP response hay JSON chứa base64 (đề xuất: binary `audio/*` để giảm overhead ~33% kích thước và giảm độ trễ).
 - **File dự kiến tạo/sửa:**
   - `backend/contracts/vmi.openapi.yaml`
@@ -339,12 +339,12 @@ Quy tắc chung cho Codex:
   - `npm run build` thoát mã `0`.
   - `npm test -- --runInBand` pass.
   - `npm run test:e2e -- --runInBand` pass.
-- **Rủi ro chính:** TTS tiếng Việt của một số model tạo độ trễ cao (> 2–3s riêng phần TTS), dễ làm tổng chu trình vượt 10 giây (`NFR-VMI-01`).
+- **Rủi ro chính:** TTS tiếng Việt của một số model tạo độ trễ cao (> 2–3s riêng phần TTS), dễ làm lần chờ từ lúc nộp `/answers` đến khi có audio câu hỏi tiếp theo (AI + TTS) vượt 10 giây (`NFR-VMI-01`).
 
 ## Task 8: Tích hợp STT nhận diện câu trả lời & luồng xác nhận
 
 - **Mục tiêu:** Định nghĩa `SttProvider` tách riêng khỏi `AiProvider`, tiếp nhận đoạn ghi âm câu trả lời theo từng lượt và trả văn bản nhận diện tạm (`FR-VMI-12, 13`) để người dùng kiểm tra/nói lại trước khi gửi qua API nộp câu trả lời.
-- **FR/BR/NFR liên quan:** `FR-VMI-12`, `FR-VMI-13`, `NFR-VMI-01` (độ trễ <= 10s cho từng lần chờ), `NFR-VMI-02` (song ngữ), `NFR-VMI-03` (bảo mật & ownership), `U002`.
+- **FR/BR/NFR liên quan:** `FR-VMI-12`, `FR-VMI-13`, `NFR-VMI-01` (theo định nghĩa từng lần chờ ở Tổng quan), `NFR-VMI-02` (song ngữ), `NFR-VMI-03` (bảo mật & ownership), `U002`.
 - **Làm:**
   - **Bước tiên quyết:** Người dùng chốt giao thức audio và nhà cung cấp STT (sau khi tra tài liệu về độ chính xác tiếng Việt/Anh và độ trễ).
   - Cài `@types/multer` (devDependency qua `npm install -D @types/multer`) nếu dùng `@UploadedFile()` + `Express.Multer.File` của `@nestjs/platform-express`.
@@ -357,7 +357,7 @@ Quy tắc chung cho Codex:
 - **Phụ thuộc và điều kiện trước khi bắt đầu:** Task 3 hoàn thành + **Người dùng đã chốt giao thức audio và nhà cung cấp STT**.
 - **Quyết định còn mở (Quyết định cần người dùng chốt trước khi làm):**
   1. **Chốt giao thức audio:** Chấp nhận đề xuất **REST theo từng lượt** (upload file ghi âm 1 câu trả lời qua `multipart/form-data` vì có bước user xác nhận văn bản `FR-VMI-13`) hay yêu cầu chuyển sang WebSocket/WebRTC (hội thoại liên tục)?
-  2. **Chốt nhà cung cấp STT:** Tra tài liệu và chốt dùng nhà cung cấp nào (ví dụ Gemini audio input, Whisper/Groq, Deepgram, Google Cloud STT...) dựa trên độ chính xác nhận diện **tiếng Việt chuyên ngành IT**, tiếng Anh, và độ trễ đáp ứng `NFR-VMI-01` (<= 10s cho từng lần chờ).
+  2. **Chốt nhà cung cấp STT:** Tra tài liệu và chốt dùng nhà cung cấp nào (ví dụ Gemini audio input, Whisper/Groq, Deepgram, Google Cloud STT...) dựa trên độ chính xác nhận diện **tiếng Việt chuyên ngành IT**, tiếng Anh, và độ trễ đáp ứng `NFR-VMI-01` (lần chờ (a): từ lúc gửi audio đến khi nhận văn bản STT, với clip trả lời thông thường đến khoảng 30 giây).
   3. **Giới hạn kỹ thuật upload:** Định dạng audio Frontend sẽ gửi (`audio/webm`, `audio/wav`, `audio/mp4`...) và dung lượng tối đa mỗi câu trả lời 3 phút (ví dụ `10 MB` hoặc `15 MB`).
 - **File dự kiến tạo/sửa:**
   - `backend/contracts/vmi.openapi.yaml`
@@ -413,7 +413,7 @@ Quy tắc chung cho Codex:
 2. **[Trước Task 5 — Tùy chọn]** Xác nhận có làm Task 5 ngay trên in-memory hay gộp làm trực tiếp khi có DB ở Task 9, và có cần endpoint `POST /vmi/sessions/:id/replay` hay Frontend tự gọi lại `POST /vmi/sessions`.
 3. **[Trước Task 7 & Task 8 — BẮT BUỘC chốt để gỡ chặn Audio]**
    - **Người dùng chốt giao thức audio:** Mặc định đề xuất **REST theo từng lượt** (phù hợp với `FR-VMI-13` có bước xác nhận văn bản trước khi nộp) hay đổi sang WebSocket/WebRTC?
-   - **Người dùng (hoặc team AI) chốt nhà cung cấp STT và TTS:** Tra tài liệu để kiểm tra chất lượng tiếng Việt, tiếng Anh, độ trễ (sao cho từng lần chờ STT / AI+TTS <= 10 giây theo `NFR-VMI-01`) và chọn format audio chuẩn giữa Frontend & Backend (`webm/opus`, `wav`, `mp3`...).
+   - **Người dùng (hoặc team AI) chốt nhà cung cấp STT và TTS:** Tra tài liệu để kiểm tra chất lượng tiếng Việt, tiếng Anh, độ trễ (đánh giá riêng lần chờ (a) gửi audio → văn bản STT và lần chờ (b) nộp `/answers` → audio câu hỏi tiếp theo, mỗi lần không quá 10 giây theo `NFR-VMI-01`) và chọn format audio chuẩn giữa Frontend & Backend (`webm/opus`, `wav`, `mp3`...).
    - **Chốt kiểu trả audio của TTS (Task 7):** Binary stream (`audio/*`) hay JSON base64.
 4. **[Trước Task 9 — BẮT BUỘC chờ thành viên khác & chốt ranh giới]**
    - Hoàn thiện Prisma/PostgreSQL, phân hệ CV/Profile, phân hệ Auth từ các thành viên khác.
@@ -424,9 +424,9 @@ Quy tắc chung cho Codex:
 Đối chiếu `documents/docs/Week02/Team Decision/Bai_lam_Voice_Mock_Interview.md` (nguồn đặc tả VMI chi tiết được chọn làm chuẩn cho kế hoạch này) với `documents/docs/Week02/Submission/Requirements_Analysis.md` (bản tổng hợp nộp Week02):
 
 1. **Độ trễ tối đa (`NFR-VMI-01` vs `U002`):**
-   - Trong `Bai_lam_Voice_Mock_Interview.md`: bảng `NFR-VMI-01` (dòng 130) ghi **"không quá 5 giây"**, nhưng mục `U002` — Ràng buộc phi chức năng (dòng 169) ghi **"không quá 4 giây"**.
-   - Trong `Requirements_Analysis.md`: `NFR-VMI-01` (dòng 235) ghi **"không quá 5 giây"**, còn `UC-VMI-02` (dòng 420) dẫn chiếu `#nfr-vmi-01` (không còn con số 4 giây).
-   - *Áp dụng theo quyết định đã chốt:* Lấy **10 giây cho từng lần chờ** (theo cập nhật NFR-VMI-01 sau khi STT tách độc lập).
+   - `Bai_lam_Voice_Mock_Interview.md`: NFR-VMI-01 và ràng buộc U002 đã đồng bộ mốc 10 giây cho từng lần chờ; không còn áp dụng mô tả mâu thuẫn cũ.
+   - `Requirements_Analysis.md`: Khi mạng ổn định, mỗi lần chờ không quá 10 giây: (a) từ lúc gửi audio đến lúc nhận văn bản STT, với clip trả lời thông thường đến khoảng 30 giây; (b) từ lúc nộp POST /answers đến khi có audio câu hỏi tiếp theo, gồm AI sinh câu hỏi và TTS. Không tính thời gian người dùng xác nhận/chỉnh sửa văn bản giữa hai bước.
+   - *Áp dụng theo quyết định đã chốt:* Dùng nguyên định nghĩa `Requirements_Analysis.md` ở trên, không cộng STT với AI + TTS thành một tổng chu trình.
 2. **Số lượng và đánh số FR (`FR-VMI-xx`):**
    - `Bai_lam_Voice_Mock_Interview.md` có **25 mã FR** (`FR-VMI-01..23` và nhảy cóc sang `FR-VMI-27, 28`, khuyết `24–26`).
    - `Requirements_Analysis.md` (mục 3.2.1 b, dòng 145–155) rút gọn thành **9 mã FR đại diện** (`FR-VMI-01, 05, 07, 11, 14, 16, 18, 21, 27`), gộp hành vi của các mã chi tiết vào cột Details (ví dụ `FR-VMI-11` gộp cả TTS + STT + xác nhận văn bản; `FR-VMI-27` gộp cả xử lý gián đoạn phiên lẫn tạo lại báo cáo).
