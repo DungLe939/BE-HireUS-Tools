@@ -1,3 +1,5 @@
+import { STT_PROVIDER } from './interfaces/stt-provider.interface';
+import { WhisperSttProvider } from './providers/whisper-stt.provider';
 import { TTS_PROVIDER } from './interfaces/tts-provider.interface';
 import { ZonosTtsProvider } from './providers/zonos-tts.provider';
 import { Module, ValidationPipe } from '@nestjs/common';
@@ -25,6 +27,7 @@ import { VmiService } from './vmi.service';
     },
     TempAuthGuard,
     { provide: CV_PROVIDER, useClass: EmptyCvProvider },
+    { provide: STT_PROVIDER, useClass: WhisperSttProvider },
     { provide: TTS_PROVIDER, useClass: ZonosTtsProvider },
     { provide: AI_PROVIDER, useClass: GeminiAiProvider },
     { provide: VMI_SESSION_REPOSITORY, useClass: InMemoryVmiSessionRepository },

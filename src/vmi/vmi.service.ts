@@ -1,3 +1,5 @@
+import { STT_PROVIDER, MAX_AUDIO_BYTES, STT_MIME } from './interfaces/stt-provider.interface';
+import type { SttAudio, SttProvider } from './interfaces/stt-provider.interface';
 import { randomUUID } from 'node:crypto';
 import {
   BadGatewayException,
@@ -9,6 +11,8 @@ import {
   Injectable,
   Logger,
   Optional,
+  PayloadTooLargeException,
+  UnsupportedMediaTypeException,
   NotFoundException,
   ServiceUnavailableException,
   UnprocessableEntityException,
@@ -31,6 +35,32 @@ import { calculateVmiScore } from './utils/vmi-scoring.util';
 
 @Injectable()
 export class VmiService {
+  private readonly transcribingSessions = new Set<string>();
+
+  async transcribeAudio(userId: string, id: string, audio: SttAudio | undefined) {
+    const session = await this.ownedSession(userId, id);
+    const question = session.turns.at(-1);
+    if (session.status !== VmiSessionStatus.IN_PROGRESS || session.pendingNextQuestion || !question ||
+      question.answerText !== undefined || this.transcribingSessions.has(id)) throw new BadRequestException('Session is not ready for transcription.');
+    const rawLimit = process.env.VMI_AUDIO_MAX_BYTES ?? String(MAX_AUDIO_BYTES);
+    const limit = Number(rawLimit);
+    if (!/^\d+$/.test(rawLimit) || !Number.isSafeInteger(limit) || limit < 1 || limit > MAX_AUDIO_BYTES) {
+      throw new ServiceUnavailableException({ statusCode: 503, error: 'Service Unavailable', code: 'VMI_STT_UNAVAILABLE', message: 'Speech recognition is unavailable.' });
+    }
+    if (!audio || !Buffer.isBuffer(audio.buffer) || audio.buffer.length === 0) throw new BadRequestException('Provide one nonempty audio file.');
+    if (audio.size > limit || audio.buffer.length > limit) throw new PayloadTooLargeException('Audio exceeds the upload limit.');
+    if (!STT_MIME.test(audio.mimetype)) throw new UnsupportedMediaTypeException({ statusCode: 415, error: 'Unsupported Media Type',
+      code: 'VMI_STT_UNSUPPORTED_AUDIO', message: 'Unsupported audio format.' });
+    this.transcribingSessions.add(id);
+    try {
+      const result = await this.measureSpeech('stt', async () => {
+        if (!this.stt) throw new ServiceUnavailableException();
+        return this.stt.transcribe(audio, session.language);
+      });
+      return { text: result.text, language: session.language };
+    } finally { this.transcribingSessions.delete(id); }
+  }
+
   private readonly synthesizingQuestions = new Map<string, Promise<Buffer>>();
 
   async synthesizeQuestion(userId: string, id: string, questionId: string): Promise<Buffer> {
@@ -57,6 +87,15 @@ export class VmiService {
     try { return await operation(); }
     catch (error: unknown) {
       const upstream = error instanceof HttpException ? error.getStatus() : 502;
+      if (event === 'stt' && error instanceof HttpException) {
+        const response = error.getResponse();
+        const code = typeof response === 'object' && response !== null ? (response as { code?: unknown }).code : undefined;
+        if (upstream === 413) throw new PayloadTooLargeException('Audio exceeds the upload limit.');
+        if (upstream === 415) throw new UnsupportedMediaTypeException({ statusCode: 415, error: 'Unsupported Media Type', code: 'VMI_STT_UNSUPPORTED_AUDIO', message: 'Unsupported or invalid audio.' });
+        if (upstream === 422 && (code === 'VMI_STT_AUDIO_TOO_LONG' || code === 'VMI_STT_EMPTY_TRANSCRIPT')) {
+          throw new UnprocessableEntityException({ statusCode: 422, error: 'Unprocessable Entity', code, message: 'Recording is too long or no speech was recognized. Record again or type your answer.' });
+        }
+      }
       const statusCode = upstream === 504 ? 504 : upstream === 503 || upstream === 429 ? 503 : 502;
       const body = { statusCode, error: statusCode === 504 ? 'Gateway Timeout' : statusCode === 503 ? 'Service Unavailable' : 'Bad Gateway',
         code: `VMI_${event.toUpperCase()}_${statusCode === 504 ? 'TIMEOUT' : 'UNAVAILABLE'}`,
@@ -377,6 +416,7 @@ export class VmiService {
     @Inject(AI_PROVIDER) private readonly ai: AiProvider,
     @Inject(CV_PROVIDER) private readonly cv: CvProvider,
     @Optional() @Inject(TTS_PROVIDER) private readonly tts?: TtsProvider,
+    @Optional() @Inject(STT_PROVIDER) private readonly stt?: SttProvider,
   ) {}
 
   getOptions() {

@@ -1,4 +1,7 @@
-import { Header, StreamableFile, Body, Controller, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { MAX_AUDIO_BYTES } from './interfaces/stt-provider.interface';
+import type { SttAudio } from './interfaces/stt-provider.interface';
+import { BadRequestException, UploadedFile, UseInterceptors, Header, StreamableFile, Body, Controller, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { CreateVmiSessionDto } from './dto/create-vmi-session.dto';
 import { StartVmiSessionDto } from './dto/start-vmi-session.dto';
@@ -11,6 +14,20 @@ import { ListVmiSessionsQueryDto } from './dto/list-vmi-sessions-query.dto';
 @UseGuards(TempAuthGuard)
 export class VmiController {
   constructor(private readonly service: VmiService) {}
+
+  @Post('sessions/:id/transcribe')
+  @HttpCode(HttpStatus.OK)
+  @Header('Cache-Control', 'no-store')
+  @UseInterceptors(FileInterceptor('audio', { limits: { fileSize: MAX_AUDIO_BYTES, files: 1, fields: 0, parts: 1 } }))
+  transcribeAudio(
+    @CurrentUser() userId: string,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+    @UploadedFile() audio: SttAudio | undefined,
+    @Body() body: Record<string, unknown>,
+  ) {
+    if (Object.keys(body ?? {}).length) throw new BadRequestException('Only an audio file is accepted.');
+    return this.service.transcribeAudio(userId, id, audio);
+  }
 
   @Get('sessions/:id/questions/:questionId/audio')
   @Header('Cache-Control', 'no-store')

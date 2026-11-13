@@ -3,9 +3,9 @@ info:
   title: Voice Mock Interview API
   version: 0.8.0
   description: |
-    Configuration, device-confirmed start, text interview, evaluation, recovery and history.
+    Configuration, device-confirmed start, text interview, speech drafts/playback, evaluation, recovery and history.
     FR-VMI-01, FR-VMI-02, FR-VMI-04, FR-VMI-05, FR-VMI-06, FR-VMI-10,
-    FR-VMI-14..20, FR-VMI-23, FR-VMI-27, FR-VMI-28 and NFR-VMI-03.
+    FR-VMI-11..20, FR-VMI-23, FR-VMI-27, FR-VMI-28 and NFR-VMI-03.
     Creation stores a SETUP session and a CV snapshot without calling AI.
     Start initializes AI using that snapshot. AI failure preserves SETUP and
     all saved data so that the owner can retry the same start endpoint.
@@ -13,6 +13,67 @@ info:
     Authentication is temporary: only NODE_ENV=test honors x-mock-user-id;
     every other environment uses the fixed mock identity. JWT is not implemented.
 paths:
+  /vmi/sessions/{id}/transcribe:
+    post:
+      operationId: transcribeVmiAnswer
+      summary: Return speech draft for confirmation (FR-VMI-12, FR-VMI-13).
+      description: |
+        Owner only, IN_PROGRESS with a current unanswered question and no pending
+        next-question generation. Language comes only from the session.
+        One file named audio, no text fields. Supported MIME: audio/webm, audio/ogg,
+        audio/wav, audio/x-wav, audio/mpeg, audio/mp3, audio/mp4, audio/m4a, audio/x-m4a.
+        MIME parameters are normalized by multipart; ASR checks the decoded container.
+        Hard upload cap 15728640 bytes (15 MiB), configurable downwards through
+        VMI_AUDIO_MAX_BYTES. Default decoded duration limit 195000 ms (180s + 15s
+        margin), configurable via VMI_AUDIO_MAX_DURATION_MS in 180000..600000.
+        Audio and text are not saved. The client must confirm/edit text then call
+        POST /answers separately. All failures preserve the saved interview data.
+        Concurrent transcription for one session returns 400; retry is safe.
+      parameters:
+        - $ref: '#/components/parameters/TestUserId'
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [audio]
+              properties:
+                audio: { type: string, format: binary }
+      responses:
+        '200':
+          description: Nonempty draft only. Cache-Control is no-store.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [text, language]
+                properties:
+                  text: { type: string, minLength: 1 }
+                  language:
+                    $ref: '#/components/schemas/Language'
+        '400':
+          description: Missing/empty audio, invalid UUID, unexpected fields/files, invalid state, or transcription already running.
+        '404':
+          description: Missing session or foreign owner.
+        '413':
+          description: Audio exceeds configured upload limit (hard cap 15 MiB).
+        '415':
+          description: VMI_STT_UNSUPPORTED_AUDIO; unsupported MIME or invalid/mismatched container.
+        '422':
+          description: VMI_STT_AUDIO_TOO_LONG or VMI_STT_EMPTY_TRANSCRIPT.
+        '502':
+          description: VMI_STT_UNAVAILABLE; rejected upstream request or malformed JSON/result.
+        '503':
+          description: VMI_STT_UNAVAILABLE; invalid config, upstream overload, or network failure.
+        '504':
+          description: VMI_STT_TIMEOUT; request or body read exceeded timeout.
   /vmi/sessions/{id}/questions/{questionId}/audio:
     get:
       operationId: getVmiQuestionAudio
