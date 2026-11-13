@@ -696,3 +696,131 @@ describe('VmiService retry locking across recovery operations', () => {
     } finally { log.mockRestore(); }
   });
 });
+
+
+describe('VmiService history', () => {
+  let repository: InMemoryVmiSessionRepository;
+  let service: VmiService;
+  let ai: jest.Mocked<AiProvider>;
+  let cv: jest.Mocked<CvProvider>;
+  const report = { technical: 74.999, problemSolving: 74.999, communication: 74.999,
+    overallScore: 74.999, band: 'YELLOW' as const, strengths: ['Strength'], knowledgeGaps: ['Gap'],
+    suggestedAnswers: ['Guidance'], reviewTopics: ['Topic'], recommendation: 'Recommendation', disclaimer: 'Training only', createdAt: new Date(5000) };
+  beforeEach(() => {
+    repository = new InMemoryVmiSessionRepository();
+    ai = { initInterviewContext: jest.fn(), generateNextQuestion: jest.fn(), evaluateInterview: jest.fn() };
+    cv = { getSummary: jest.fn().mockResolvedValue({ id: 'cv-1', summary: 'Original CV project' }) };
+    service = new VmiService(repository, ai, cv);
+  });
+  afterEach(() => {
+    expect(ai.initInterviewContext).not.toHaveBeenCalled();
+    expect(ai.generateNextQuestion).not.toHaveBeenCalled();
+    expect(ai.evaluateInterview).not.toHaveBeenCalled();
+  });
+  async function saved(userId = 'owner', status = VmiSessionStatus.IN_PROGRESS, answerText: string | null = 'Saved answer', timestamp = 1000) {
+    const created = await service.createSession(userId, setup);
+    const session = (await repository.findById(created.id))!;
+    session.status = status;
+    session.createdAt = new Date(timestamp); session.updatedAt = new Date(timestamp);
+    session.context = 'private-context'; session.questionPlan = structuredClone(aiResult.questionPlan);
+    session.lastAiError = 'private-error';
+    session.turns = [{ questionId: session.id, questionText: 'Opening question', stage: VmiStage.OPENING,
+      askedAt: new Date(timestamp), ...(answerText !== null ? { answerText, answeredAt: new Date(timestamp + 1000), elapsedSeconds: 1, timedOut: false } : {}), cvBased: false }];
+    await repository.save(session);
+    return session;
+  }
+  it('returns an empty owner page without calling AI', async () => {
+    expect(await service.listSessions('owner', { limit: 20, offset: 0 })).toEqual({ items: [], total: 0, limit: 20, offset: 0 });
+  });
+  it('filters SETUP and zero-answer sessions in every status before counting and paginating', async () => {
+    const expected: string[] = [];
+    for (const status of Object.values(VmiSessionStatus)) {
+      for (const text of [null, '', '   ', 'Saved answer']) {
+        const session = await saved('owner', status, text);
+        if (status !== VmiSessionStatus.SETUP && text === 'Saved answer') expected.push(session.id);
+      }
+    }
+    const page = await service.listSessions('owner', { limit: 50, offset: 0 });
+    expect(page.total).toBe(4);
+    expect(page.items.map((item: { id: string }) => item.id).sort()).toEqual(expected.sort());
+    const limited = await service.listSessions('owner', { limit: 1, offset: 1 });
+    expect(limited.total).toBe(4); expect(limited.items).toHaveLength(1);
+  });
+  it('sorts newest first, filters owners and paginates after filtering', async () => {
+    const old = await saved('owner', VmiSessionStatus.ENDED, 'Old', 1000);
+    const newest = await saved('owner', VmiSessionStatus.IN_PROGRESS, 'New', 3000);
+    const middle = await saved('owner', VmiSessionStatus.REPORT_FAILED, 'Middle', 2000);
+    await saved('other', VmiSessionStatus.ENDED, 'Foreign', 10000);
+    await saved('owner', VmiSessionStatus.SETUP, 'Hidden setup', 20000);
+    await saved('owner', VmiSessionStatus.ENDED, '', 15000);
+    const all = await service.listSessions('owner', { limit: 20, offset: 0 });
+    expect(all.items.map((item: { id: string }) => item.id)).toEqual([newest.id, middle.id, old.id]);
+    const page = await service.listSessions('owner', { limit: 1, offset: 1 });
+    expect(page).toMatchObject({ total: 3, limit: 1, offset: 1, items: [{ id: middle.id }] });
+    expect(await service.listSessions('owner', { limit: 20, offset: 3 })).toEqual({ items: [], total: 3, limit: 20, offset: 3 });
+    expect((await service.listSessions('other', { limit: 20, offset: 0 })).total).toBe(1);
+  });
+  it('orders equal timestamps deterministically by id', async () => {
+    const first = await saved(); const second = await saved();
+    const page = await service.listSessions('owner', { limit: 20, offset: 0 });
+    expect(page.items.map((item: { id: string }) => item.id)).toEqual([first.id, second.id].sort());
+  });
+  it('returns detached repository pages, including nested fields and dates', async () => {
+    const session = await saved();
+    session.cvSnapshot = { id: 'cv-1', summary: 'Saved CV' }; session.report = structuredClone(report);
+    await repository.save(session);
+    const page = await repository.findManyByUserId('owner', { limit: 20, offset: 0 });
+    page.items[0].cvSnapshot!.summary = 'Changed outside';
+    page.items[0].report!.strengths.push('Changed outside');
+    page.items[0].createdAt.setTime(99999);
+    const again = await repository.findManyByUserId('owner', { limit: 20, offset: 0 });
+    expect(again.items[0].cvSnapshot!.summary).toBe('Saved CV');
+    expect(again.items[0].report!.strengths).toEqual(['Strength']);
+    expect(again.items[0].createdAt.getTime()).toBe(1000);
+  });
+  it('returns only public summary fields and optional stored scores', async () => {
+    const session = await saved('owner', VmiSessionStatus.EVALUATED);
+    session.report = structuredClone(report); await repository.save(session);
+    const page = await service.listSessions('owner', { limit: 20, offset: 0 });
+    expect(page.items).toEqual([{ id: session.id, createdAt: session.createdAt, position: setup.position,
+      level: setup.level, language: setup.language, status: 'EVALUATED', overallScore: 75, band: 'YELLOW' }]);
+    expect((await repository.findById(session.id))!.report!.overallScore).toBe(74.999);
+    const noReport = await saved('other');
+    const otherPage = await service.listSessions('other', { limit: 20, offset: 0 });
+    expect(otherPage.items[0].id).toBe(noReport.id);
+    expect(otherPage.items[0]).not.toHaveProperty('overallScore'); expect(otherPage.items[0]).not.toHaveProperty('band');
+  });
+  it('returns owned detail with configuration, full transcript and report without internal state', async () => {
+    const session = await saved('owner', VmiSessionStatus.EVALUATED);
+    session.cvId = 'cv-1'; session.cvSnapshot = { id: 'cv-1', summary: 'Snapshot' };
+    session.report = structuredClone(report); session.startedAt = new Date(1000); session.endedAt = new Date(2000);
+    await repository.save(session);
+    const detail = await service.getSessionDetails('owner', session.id);
+    expect(Object.keys(detail).sort()).toEqual(['createdAt','cvId','cvSnapshot','endedAt','id','language','level','position','report','startedAt','status','targetQuestionCount','transcript','updatedAt'].sort());
+    expect(detail).toMatchObject({ id: session.id, ...setup, targetQuestionCount: 6, cvId: 'cv-1', cvSnapshot: session.cvSnapshot, report: { overallScore: 75, band: 'YELLOW' } });
+    expect(detail.transcript).toEqual([{ questionId: session.id, questionText: 'Opening question', stage: 'OPENING', askedAt: new Date(1000), answerText: 'Saved answer', answeredAt: new Date(2000), elapsedSeconds: 1, timedOut: false }]);
+    const existingReport = await service.getReport('owner', session.id);
+    expect(detail.report).toEqual(existingReport.report); expect(detail.transcript).toEqual(existingReport.transcript);
+    expect(cv.getSummary).not.toHaveBeenCalled();
+  });
+  it('returns 404 for foreign and unknown detail, including SETUP', async () => {
+    const session = await service.createSession('owner', setup);
+    await expect(service.getSessionDetails('other', session.id)).rejects.toMatchObject({ status: 404 });
+    await expect(service.getSessionDetails('owner', 'missing')).rejects.toMatchObject({ status: 404 });
+    const detail = await service.getSessionDetails('owner', session.id);
+    expect(detail).toMatchObject({ status: 'SETUP', transcript: [] });
+    expect(detail).not.toHaveProperty('report'); expect(detail).not.toHaveProperty('cvSnapshot');
+  });
+  it('keeps the historical CV snapshot after original edits/deletion without refetching', async () => {
+    const original = { id: 'cv-1', summary: 'Original CV project' };
+    cv.getSummary.mockResolvedValue(original);
+    const created = await service.createSession('owner', { ...setup, cvId: 'cv-1' });
+    original.summary = 'Edited CV project';
+    cv.getSummary.mockResolvedValue(null);
+    const detail = await service.getSessionDetails('owner', created.id);
+    expect(detail.cvSnapshot).toEqual({ id: 'cv-1', summary: 'Original CV project' });
+    expect(cv.getSummary).toHaveBeenCalledTimes(1);
+    detail.cvSnapshot.summary = 'Changed response';
+    expect((await service.getSessionDetails('owner', created.id)).cvSnapshot.summary).toBe('Original CV project');
+  });
+});

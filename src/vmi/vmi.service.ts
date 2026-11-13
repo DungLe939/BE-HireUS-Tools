@@ -20,6 +20,7 @@ import { VMI_SESSION_REPOSITORY } from './interfaces/vmi-session-repository.inte
 import type { VmiSessionRepository } from './interfaces/vmi-session-repository.interface';
 import type { CreateVmiSessionDto } from './dto/create-vmi-session.dto';
 import type { StartVmiSessionDto } from './dto/start-vmi-session.dto';
+import type { ListVmiSessionsQueryDto } from './dto/list-vmi-sessions-query.dto';
 import { VmiLanguage, VmiLevel, VmiPosition, VmiSessionStatus, VmiStage } from './types/vmi.types';
 import type { InitInterviewContextOutput, VmiSession, VmiTurn, GenerateNextQuestionInput, VmiPlannedQuestion, VmiReport } from './types/vmi.types';
 
@@ -27,6 +28,33 @@ import { calculateVmiScore } from './utils/vmi-scoring.util';
 
 @Injectable()
 export class VmiService {
+  async listSessions(userId: string, query: ListVmiSessionsQueryDto) {
+    const { limit, offset } = query;
+    const page = await this.repository.findManyByUserId(userId, { limit, offset });
+    return {
+      items: page.items.map(session => ({
+        id: session.id, createdAt: session.createdAt,
+        position: session.position, level: session.level, language: session.language, status: session.status,
+        ...(session.report ? { overallScore: this.serializeReport(session.report).overallScore, band: session.report.band } : {}),
+      })),
+      total: page.total, limit, offset,
+    };
+  }
+
+  async getSessionDetails(userId: string, id: string) {
+    const session = await this.ownedSession(userId, id);
+    return {
+      id: session.id, position: session.position, level: session.level, language: session.language,
+      status: session.status, targetQuestionCount: session.targetQuestionCount,
+      ...(session.cvId !== undefined ? { cvId: session.cvId } : {}),
+      ...(session.cvSnapshot ? { cvSnapshot: { id: session.cvSnapshot.id, summary: session.cvSnapshot.summary } } : {}),
+      createdAt: session.createdAt, updatedAt: session.updatedAt,
+      ...(session.startedAt ? { startedAt: session.startedAt } : {}),
+      ...(session.endedAt ? { endedAt: session.endedAt } : {}),
+      transcript: this.serializeTranscript(session),
+      ...(session.report ? { report: this.serializeReport(session.report) } : {}),
+    };
+  }
   async retryNextQuestion(userId: string, id: string) {
     const prepared = await this.mutateSession(userId, id, async session => {
       if (session.status !== VmiSessionStatus.IN_PROGRESS || !session.pendingNextQuestion || this.generatingSessions.has(id)) {
@@ -119,15 +147,27 @@ export class VmiService {
   }
 
   private reportResult(session: VmiSession) {
-    const report = session.report!;
     return {
       id: session.id, status: VmiSessionStatus.EVALUATED, language: session.language,
-      transcript: session.turns.map(turn => ({
-        questionId: turn.questionId, questionText: turn.questionText, stage: turn.stage, askedAt: turn.askedAt,
-        ...(turn.answerText !== undefined ? { answerText: turn.answerText, answeredAt: turn.answeredAt,
-          elapsedSeconds: turn.elapsedSeconds, timedOut: turn.timedOut } : {}),
-      })),
-      report: { ...report, overallScore: Number(report.overallScore.toFixed(2)) },
+      transcript: this.serializeTranscript(session), report: this.serializeReport(session.report!),
+    };
+  }
+
+  private serializeTranscript(session: VmiSession) {
+    return session.turns.map(turn => ({
+      questionId: turn.questionId, questionText: turn.questionText, stage: turn.stage, askedAt: turn.askedAt,
+      ...(turn.answerText !== undefined ? { answerText: turn.answerText, answeredAt: turn.answeredAt,
+        elapsedSeconds: turn.elapsedSeconds, timedOut: turn.timedOut } : {}),
+    }));
+  }
+
+  private serializeReport(report: VmiReport) {
+    return {
+      technical: report.technical, problemSolving: report.problemSolving, communication: report.communication,
+      overallScore: Number(report.overallScore.toFixed(2)), band: report.band,
+      strengths: report.strengths, knowledgeGaps: report.knowledgeGaps,
+      suggestedAnswers: report.suggestedAnswers, reviewTopics: report.reviewTopics,
+      recommendation: report.recommendation, disclaimer: report.disclaimer, createdAt: report.createdAt,
     };
   }
 

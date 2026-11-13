@@ -1,9 +1,9 @@
 openapi: 3.0.3
 info:
   title: Voice Mock Interview API
-  version: 0.6.0
+  version: 0.7.0
   description: |
-    Configuration, device-confirmed start, text interview, evaluation and recovery.
+    Configuration, device-confirmed start, text interview, evaluation, recovery and history.
     FR-VMI-01, FR-VMI-02, FR-VMI-04, FR-VMI-05, FR-VMI-06, FR-VMI-10,
     FR-VMI-14..20, FR-VMI-23, FR-VMI-27, FR-VMI-28 and NFR-VMI-03.
     Creation stores a SETUP session and a CV snapshot without calling AI.
@@ -56,6 +56,64 @@ paths:
                         type: integer
                         enum: [6]
   /vmi/sessions:
+    get:
+      operationId: listVmiSessions
+      summary: List the owner's interview history (FR-VMI-21, FR-VMI-22, U005).
+      description: |
+        Include only non-SETUP sessions with at least one non-blank saved answer.
+        Exclude all zero-answer sessions, including ENDED, EVALUATED and REPORT_FAILED.
+        Apply ownership and eligibility filters BEFORE counting and pagination.
+        Sort by createdAt DESC, then id ASC for equal timestamps.
+        Pagination uses limit (default 20, maximum 50) and offset (default 0).
+        Query values must be canonical unsigned decimal integers without leading zeros;
+        empty, fractional, negative, repeated, non-numeric or unknown parameters return 400.
+        Optional overallScore/band are present only when a report exists; overallScore
+        uses the same response rounding as /report. No placeholder zero score is added.
+        Summaries do not contain CV, transcript, userId, internal context or AI state.
+        In-memory history is lost when the server restarts.
+      parameters:
+        - $ref: '#/components/parameters/TestUserId'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 9007199254740991
+            default: 0
+      responses:
+        '200':
+          description: Filtered page with total eligible records for the owner.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items, total, limit, offset]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/HistorySessionSummary'
+                  total:
+                    type: integer
+                    minimum: 0
+                  limit:
+                    type: integer
+                    minimum: 1
+                    maximum: 50
+                  offset:
+                    type: integer
+                    minimum: 0
+                    maximum: 9007199254740991
+        '400':
+          $ref: '#/components/responses/BadRequest'
     post:
       operationId: createVmiSession
       summary: Create a SETUP session with optional CV (FR-VMI-04, FR-VMI-06, FR-VMI-23).
@@ -87,6 +145,35 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HttpError'
+  /vmi/sessions/{id}:
+    get:
+      operationId: getVmiSessionDetails
+      summary: Read the owner's saved session, CV snapshot, transcript and report (FR-VMI-21..23).
+      description: |
+        Missing and foreign sessions both return 404. Detail access is available
+        for every owned session, including SETUP and zero-answer sessions omitted
+        from the history list. Read cvSnapshot from the session only; never refetch
+        CV data. Editing or deleting the original CV cannot change this response.
+        Omit context, questionPlan, userId, lastAiError, pendingNextQuestion and
+        all other internal state. A report is omitted until one has been saved.
+        To interview again with these settings, the frontend sends position, level,
+        language, targetQuestionCount and optional cvId to POST /vmi/sessions.
+        There is no replay endpoint; creating a new session resolves the current CV
+        normally and does not change this historical snapshot.
+      parameters:
+        - $ref: '#/components/parameters/TestUserId'
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: Public session detail, with the CV snapshot used for that session.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionDetails'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/SessionNotFound'
   /vmi/sessions/{id}/start:
     post:
       operationId: startVmiSession
@@ -487,6 +574,83 @@ components:
           schema:
             $ref: '#/components/schemas/HttpError'
   schemas:
+    HistorySessionSummary:
+      type: object
+      additionalProperties: false
+      required: [id, createdAt, position, level, language, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        position:
+          $ref: '#/components/schemas/Position'
+        level:
+          $ref: '#/components/schemas/Level'
+        language:
+          $ref: '#/components/schemas/Language'
+        status:
+          type: string
+          enum: [IN_PROGRESS, ENDED, EVALUATED, REPORT_FAILED]
+        overallScore:
+          type: number
+          minimum: 0
+          maximum: 100
+        band:
+          type: string
+          enum: [RED, YELLOW, GREEN]
+    SessionDetails:
+      type: object
+      additionalProperties: false
+      required: [id, position, level, language, status, targetQuestionCount, createdAt, updatedAt, transcript]
+      properties:
+        id:
+          type: string
+          format: uuid
+        position:
+          $ref: '#/components/schemas/Position'
+        level:
+          $ref: '#/components/schemas/Level'
+        language:
+          $ref: '#/components/schemas/Language'
+        status:
+          type: string
+          enum: [SETUP, IN_PROGRESS, ENDED, EVALUATED, REPORT_FAILED]
+        targetQuestionCount:
+          type: integer
+          minimum: 5
+          maximum: 8
+        cvId:
+          type: string
+        cvSnapshot:
+          type: object
+          additionalProperties: false
+          required: [id, summary]
+          properties:
+            id:
+              type: string
+            summary:
+              type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        startedAt:
+          type: string
+          format: date-time
+        endedAt:
+          type: string
+          format: date-time
+        transcript:
+          type: array
+          items:
+            $ref: '#/components/schemas/TranscriptTurn'
+        report:
+          $ref: '#/components/schemas/Report'
     ReportResult:
       type: object
       additionalProperties: false

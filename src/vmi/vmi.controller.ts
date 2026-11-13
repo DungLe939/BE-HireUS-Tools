@@ -1,15 +1,29 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { CreateVmiSessionDto } from './dto/create-vmi-session.dto';
 import { StartVmiSessionDto } from './dto/start-vmi-session.dto';
 import { TempAuthGuard } from './guards/temp-auth.guard';
 import { VmiService } from './vmi.service';
 import { SubmitVmiAnswerDto } from './dto/submit-vmi-answer.dto';
+import { ListVmiSessionsQueryDto } from './dto/list-vmi-sessions-query.dto';
 
 @Controller('vmi')
 @UseGuards(TempAuthGuard)
 export class VmiController {
   constructor(private readonly service: VmiService) {}
+
+  @Get('sessions')
+  listSessions(@CurrentUser() userId: string, @Query() query: ListVmiSessionsQueryDto) {
+    return this.service.listSessions(userId, query);
+  }
+
+  @Get('sessions/:id')
+  getSessionDetails(
+    @CurrentUser() userId: string,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+  ) {
+    return this.service.getSessionDetails(userId, id);
+  }
 
   @Post('sessions/:id/next-question/retry')
   @HttpCode(HttpStatus.OK)
