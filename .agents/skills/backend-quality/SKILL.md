@@ -1,20 +1,25 @@
 ---
 name: backend-quality
-description: Perform a read-only quality review of NestJS backend code and its relevant API contract.
+description: Review backend HireUS về lỗi nghiệp vụ, quyền, dữ liệu, API và tích hợp AI; mặc định chỉ đọc và báo findings có căn cứ.
 ---
 
-# Backend Quality Review
+# Review backend
 
-Use this skill for a requested Backend code review or targeted quality audit. Read the applicable
-requirements through `PROJECT_SOURCES.md`, relevant local specs and contracts, changed code, and
-tests. Identify source revisions and mark a requirement unverified when its source is unavailable.
+Đọc [AGENTS.md](../../../AGENTS.md), diff/callers/tests trực tiếp bị ảnh hưởng.
+Đối chiếu hành vi với bản nguồn mới nhất qua
+[PROJECT_SOURCES.md](../../../PROJECT_SOURCES.md) và contract backend.
+Không báo một mục trong kế hoạch chưa triển khai là bug nếu ngoài phạm vi review.
 
-Report actionable findings first, ordered by severity, with file and line evidence, impact, and a
-clear remediation direction. Check correctness, module/service boundaries, input validation,
-authentication and authorization where required, sensitive data exposure, database/query and
-transaction safety where present, error handling, external AI failure handling where present,
-contract compatibility, and relevant test gaps. Only report checks applicable to the code under
-review; do not turn planned features into requirements or produce style-only findings.
+Ưu tiên kiểm tra:
+- Sai công thức/biên điểm, đánh giá trước xác nhận hoặc dùng dữ liệu đầu vào đã cũ.
+- Quyền sở hữu bị bỏ qua khi thay ID; xóa dữ liệu của người khác; lộ secrets/PII.
+- Lịch sử đổi theo CV gốc, mất transcript/kết quả khi provider hoặc bước gợi ý lỗi.
+- Retry tạo trùng, xử lý đồng thời sai, transaction/constraint thiếu cho hành vi cụ thể.
+- Tin hết hạn/không rõ hạn bị trình bày sai, nguồn lỗi bị coi là đã xóa.
+- Provider response sai kiểu hoặc chứa chỉ dẫn được tin cậy như cấu hình.
+- Contract không khớp HTTP thực tế và thiếu tests ở nhánh có rủi ro.
 
-This is a read-only review. Do not edit code, tests, or contracts. Do not update CNPM-Docs or
-commit/push.
+Báo findings theo mức độ với file/dòng, trigger, tác động, căn cứ và hướng sửa.
+Tách thiếu thông tin khỏi lỗi xác nhận. Không sửa code/tests/contract trong review
+trừ khi người dùng cũng yêu cầu fixes; không tự commit/push.
+Agent hiện tại tự review được, không cần hệ thống subagent.
