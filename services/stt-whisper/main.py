@@ -80,10 +80,10 @@ def whisper_config():
 
     device = os.environ.get('WHISPER_DEVICE', 'cpu')
     if device not in ('cpu', 'cuda', 'auto'): raise ValueError('Invalid WHISPER_DEVICE.')
-    model = os.environ.get('WHISPER_MODEL', 'large-v3-turbo' if device == 'cuda' else 'small')
+    model = os.environ.get('WHISPER_MODEL', 'small')
     if model not in ('large-v3-turbo', 'medium', 'small', 'base') and not Path(model).is_dir() and not re.fullmatch(r'[\w.-]+/[\w.-]+', model):
         raise ValueError('Invalid WHISPER_MODEL.')
-    # Empty means unset only for optional device-dependent defaults, not numeric values.
+    # The same small model is the default on every device; explicit empty values are invalid.
     if not model: raise ValueError('Invalid WHISPER_MODEL.')
     compute = os.environ.get('WHISPER_COMPUTE_TYPE', 'float16' if device == 'cuda' else 'int8')
     if compute not in ('default', 'auto', 'int8', 'int8_float32', 'int8_float16', 'int8_bfloat16', 'int16', 'float16', 'bfloat16', 'float32'):

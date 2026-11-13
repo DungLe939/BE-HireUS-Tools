@@ -1,7 +1,8 @@
 # Tích hợp âm thanh VMI — Task 7 và Task 8
 
 Quyết định người dùng ngày 13/11/2026 thay Google TTS/PhoWhisper bằng
-Zyphra/ZONOS3-Mini và Whisper large-v3-turbo tự host. Code Task 0–6, prompt đánh
+Zyphra/ZONOS3-Mini và Whisper tự host. Cập nhật 14/11/2026: cấu hình đang dùng
+là **small cho mọi thiết bị**, không còn dùng large-v3-turbo. Code Task 0–6, prompt đánh
 giá, repository và `/answers` vẫn giữ nguyên. Node kiểm tra: **v24.22.3**.
 
 ## NFR-VMI-01 hiện hành — quyết định sau review 13/11/2026
@@ -110,10 +111,12 @@ Khóa được giải phóng sau thành công/lỗi; không khóa `/answers` ho�
 
 STT nằm ở `services/stt-whisper/`: FastAPI, `/health`, `/transcribe`, multipart
 `audio` + `language`. Nạp model một lần khi startup, CPU int8 mặc định.
-`large-v3-turbo` là alias của faster-whisper 1.2.1 tới bản CTranslate2
-`mobiuslabsgmbh/faster-whisper-large-v3-turbo` của model OpenAI; không truyền trực
-tiếp repo Transformers vào CTranslate2. Nguồn: [OpenAI model card](https://huggingface.co/openai/whisper-large-v3-turbo),
-[upstream alias mapping](https://github.com/SYSTRAN/faster-whisper/blob/v1.2.1/faster_whisper/utils.py).
+Model hiện dùng là alias **small** của faster-whisper, mặc định giống nhau trên
+CPU/CUDA/auto. Lựa chọn này theo quyết định re-review 14/11/2026 và số đo CPU
+người dùng cung cấp đến 180s (max khoảng 7,6s), đạt ngưỡng 10s cho các độ dài đã
+thử. Chưa kiểm chứng nhận diện tiếng Việt/thuật ngữ IT bằng giọng người thật;
+`medium` là hướng dự phòng chưa đo độ trễ. Giữ override env cho tương thích, không
+chọn model lớn hơn tự động. Nguồn mapping thư viện: [faster-whisper aliases](https://github.com/SYSTRAN/faster-whisper/blob/v1.2.1/faster_whisper/utils.py).
 Model và runtime faster-whisper: MIT. [Hướng dẫn CPU](../../services/stt-whisper/README.md).
 
 Các provider đọc env khi gọi, không đọc `.env` trong test/Python. Lỗi chỉ trả mã
@@ -207,8 +210,8 @@ Baseline đầu sửa review: build pass, **252 unit/8 suites**, **160 e2e/7 sui
 bao gồm các test local người dùng vừa thêm. Commit sửa số: 282 unit/8 suites.
 
 CPU mặc định mới: **small / int8 / auto tối đa 4 thread / beam 5 / VAD false /
-condition_on_previous_text true**. CUDA mặc định giữ large-v3-turbo / float16;
-chưa đo GPU. Alias model base/medium/small/large-v3-turbo đều cấu hình được; không
+condition_on_previous_text true**. Từ re-review 14/11/2026, CUDA cũng mặc định
+**small** (compute float16); chưa đo GPU. Alias model base/medium/small/large-v3-turbo đều cấu hình được; không
 tự đổi model khi lỗi. Model nhỏ đánh đổi chất lượng, chưa được coi là cấu hình
 production trước khi thử giọng thật. Số thread auto xét CPU visible/affinity và
 quota cgroup nếu có; explicit 1..64 vẫn hoạt động.
@@ -224,6 +227,7 @@ văn bản nhận diện. Lệnh tái lập từ backend với Python của venv
 python scripts/measure-stt-latency.py --models small --profiles comparison \
   --lengths 5 15 30 60 --repeats 3 --threads 4 \
   --cache-dir /tmp/hireus-task78-whisper-cache --output-dir /tmp/hireus-review-small
+# Chỉ tái lập dữ liệu lịch sử, không phải cấu hình đang dùng:
 python scripts/measure-stt-latency.py --models large-v3-turbo --profiles fast \
   --lengths 5 15 30 60 --repeats 3 --threads 4 \
   --cache-dir /tmp/hireus-task78-whisper-cache --output-dir /tmp/hireus-review-large
@@ -240,6 +244,11 @@ python scripts/measure-stt-latency.py --models large-v3-turbo --profiles fast \
 | large-v3-turbo / fast | 30s | 5.026s | 5.151s | 3/3 | 91.7% |
 | large-v3-turbo / fast | 60s | 10.732s | 11.621s | 3/3 | 91.7% |
 
+Bảng large-v3-turbo phía trên chỉ giữ làm dữ liệu tham khảo lịch sử; model đó
+không còn là cấu hình được dùng. Theo re-review, lần đo **180s của large-v3-turbo
+bị nhiễu do chạy song song tác vụ khác**, nên không dùng để kết luận hay so sánh
+với small. Không tự bổ sung con số 180s vào bảng khi không có raw artifact.
+
 `comparison` là mặc định CPU mới (5/false/true). `fast` là profile cũ
 (1/true/false), không phải mặc định mới. Đối chứng 15 giây: small fast WER 93,3%
 so với 90,0% ở comparison; large có WER 83,3% ở cả hai. Vì không có bằng chứng
@@ -255,8 +264,8 @@ chuẩn, cả vi/en và thuật ngữ, trước quyết định production.
 Theo mốc **10s cho chờ STT đến khoảng 30s**, small mặc định và large/fast đều có
 3/3 HTTP 200 dưới 10s ở 5/15/30s trong mẫu này. Small/fast ở 60s có một lần 422;
 large/fast ở 60s có max vượt 10s. Kết quả latency đạt không khắc phục WER xấu.
-Khuyến nghị máy dev CPU: small mặc định để thử luồng, bật sửa/gõ text; GPU: giữ
-large-v3-turbo/float16 và đo lại, không hứa 10s khi chưa có GPU benchmark.
+Cấu hình hiện dùng: **small cho cả CPU và CUDA**; giữ bước sửa/gõ text.
+Không khuyến nghị large-v3-turbo. Chưa hứa hiệu năng GPU khi chưa có phép đo.
 
 Timeout HTTP hiện tại là **60000 ms** (re-review 14/11/2026). Alias
 `VMI_STT_TIMEOUT_MS` không rỗng ưu tiên, sau đó `WHISPER_STT_TIMEOUT_MS`, cuối cùng
@@ -291,8 +300,8 @@ nguyên phần review, không đưa các hunk đó vào ba commit sửa này.
 
 Quyết định NFR 10s đã đồng bộ PROJECT_CONTEXT, VMI_CONTEXT, đặc tả VMI, Requirements
 Analysis Markdown/HTML và README nguồn. Bản ghép nguyên văn giữ mốc cũ có chú thích
-lịch sử, không dùng làm tiêu chí mới. TASKS.md local không được sửa theo giới hạn
-đã đặt ở đầu tác vụ. Không thay máy trạng thái, AI/prompt/điểm, endpoint cũ hoặc FE.
+lịch sử, không dùng làm tiêu chí mới. Ở lượt 13/11, TASKS.md được giữ theo giới hạn cũ; re-review 14/11 đã cho phép
+đồng bộ NFR và model trong file này. Không thay máy trạng thái, AI/prompt/điểm, endpoint cũ hoặc FE.
 
 ## Re-review 14/11/2026 — bốn việc còn lại
 
@@ -342,7 +351,8 @@ hành và định nghĩa nguyên văn ở trên. Làm rõ các chỗ còn diễn
 | 427, 428 | Bỏ hai câu còn nói đặc tả hiện hành dùng mốc cũ |
 | 429 | Không cộng hai lần chờ thành tổng |
 
-Cố ý giữ các kết quả tìm có số 5 nhưng không phải tiêu chí đang áp dụng:
+Cố ý giữ các kết quả tìm có số 5 nhưng không phải tiêu chí đang áp dụng
+(số dòng dưới đây ghi theo HEAD `098c979` trước lượt sửa, để truy vết kết quả grep):
 
 - Notes dòng 12: mốc trước đây được nhãn rõ là lịch sử, không có hiệu lực.
 - Notes các dòng 217, 234, 238, 249, 283: clip đo **5 giây/5s**, không phải ngưỡng NFR.
@@ -378,3 +388,35 @@ Benchmark giữ startup readiness 600s cho tải/nạp model trước health, kh
 trong lần chờ STT. Nếu chủ động override sang model lớn trên CPU thì phải tăng
 HTTP timeout theo số đo. Native inference đang treo vẫn cần khởi động lại worker;
 HTTP trả 504 không thể dừng CTranslate2, cơ chế gate hiện tại được giữ nguyên.
+
+
+### 4. Small cho mọi thiết bị
+
+Mặc định `WHISPER_MODEL=small` trên CPU, CUDA và auto. Không đổi compute type theo
+thiết bị, beam/VAD/conditioning, state machine hoặc endpoint. Model override qua
+env vẫn hợp lệ (base/medium/large-v3-turbo/custom như trước) nhưng không có nhánh
+nào tự chọn large. Benchmark CLI mặc định chỉ `small`; smoke và Nest chỉ gọi
+service STT nên không tự lựa chọn model. Các bảng large cũ được giữ làm lịch sử.
+
+Lý do chọn small theo số đo người dùng cung cấp 14/11/2026: đạt NFR-VMI-01 10s
+trên CPU ở các độ dài đã kiểm tra tới 180s, max khoảng 7,6s cho clip 180s. Đây là
+bằng chứng do re-review cung cấp, không phải benchmark mới ở lượt này. Chưa thử
+riêng 195s hoặc giọng người thật. Chất lượng tiếng Việt/thuật ngữ IT còn cần kiểm
+chứng; medium là phương án dự phòng chưa đo độ trễ, không phải khuyến nghị đã đạt.
+
+
+### Kiểm tra kết thúc re-review 14/11/2026
+
+Node v24.22.3; build pass. Baseline thực tế **289 unit/8 suites** (khác con số
+288 trong yêu cầu) → **305 unit/8 suites**; **160 e2e/7 suites** giữ nguyên;
+**19 → 20 test service Python**, **3 test script Python** giữ nguyên; `bash -n`
+smoke script và checker tài liệu pass. Không có thay đổi test local chưa commit
+ở thời điểm bắt đầu; reviewer đã commit regex/test trong `098c979`, được giữ.
+Giữ nguyên phần xóa rule có sẵn trong documents; không sửa FE, AI hoặc endpoint.
+
+Các file thuộc bốn việc: util spec (regex nguồn đã đúng), TASKS, provider STT và
+spec, main.py/test_config.py, .env.example, hai script benchmark/smoke và README
+service; notes này. Tài liệu phối hợp: PROJECT_CONTEXT, VMI_CONTEXT, đặc tả VMI.
+Không đọc/sửa `.env`, không push. Chưa đo lại clip 180s/195s hoặc GPU, chưa xác
+minh chất lượng giọng thật/IT; thông tin small 180s và large 180s bị nhiễu được
+quy nguồn cho re-review của người dùng, không tự tạo số đo mới.

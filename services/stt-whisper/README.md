@@ -23,8 +23,8 @@ returns a draft, and never submits `/answers` automatically.
 
 | Environment | Default / valid settings |
 | --- | --- |
-| WHISPER_DEVICE | cpu; also cuda or auto (auto uses conservative CPU defaults) |
-| WHISPER_MODEL | CPU small; CUDA large-v3-turbo. base/small/medium/large-v3-turbo, local model directories or owner/repo IDs |
+| WHISPER_DEVICE | cpu; also cuda or auto; all devices default to the small model |
+| WHISPER_MODEL | small on CPU, CUDA and auto. Explicit base/small/medium/large-v3-turbo, local paths or owner/repo overrides remain accepted |
 | WHISPER_COMPUTE_TYPE | CPU int8; CUDA float16. Other CTranslate2 types depend on hardware |
 | WHISPER_CPU_THREADS | auto min(4, visible CPUs/affinity/cgroup quota); explicit 1..64 |
 | WHISPER_BEAM_SIZE | 5; integer 1..10 |
@@ -35,7 +35,12 @@ returns a draft, and never submits `/answers` automatically.
 The auto thread cap leaves capacity for Nest and decoding. A smaller CPU model
 trades accuracy for speed. The previous fast profile (beam1/VAD on/conditioning
 off) worsened small's synthetic WER, so it is configurable but not the default.
-CUDA keeps large-v3-turbo/float16; GPU speed has not been measured.
+The configured model is **small for every device** (CPU int8, CUDA float16).
+The re-review supplied CPU measurements through 180s with max about 7.6s, below
+the 10s STT target across those tested answer lengths. This task did not repeat
+them. Real human Vietnamese/IT-term accuracy remains unverified; medium is an
+unmeasured fallback direction. No larger model is recommended or selected by
+default; override support is retained for compatibility. GPU speed is unmeasured.
 
 Nest uses `WHISPER_STT_BASE_URL` and a **60000 ms** HTTP deadline by default.
 Existing `WHISPER_STT_TIMEOUT_MS` is retained; nonempty `VMI_STT_TIMEOUT_MS` takes
@@ -75,7 +80,7 @@ previous leaked-semaphore warning. Restart a worker if native inference hangs.
 From `backend/`, using this venv's Python:
 
 ```bash
-python scripts/measure-stt-latency.py --models small large-v3-turbo \
+python scripts/measure-stt-latency.py --models small \
   --lengths 5 15 30 60 --repeats 3 --with-comparison \
   --cache-dir /tmp/hireus-stt-models --output-dir /tmp/hireus-stt-benchmark
 ```
@@ -98,10 +103,11 @@ python -m unittest discover -s services/stt-whisper -p 'test_*.py' -v
 python -m unittest discover -s scripts -p 'test_*.py' -v
 ```
 
-`large-v3-turbo` is faster-whisper 1.2.1's alias for the CTranslate2 conversion
-`mobiuslabsgmbh/faster-whisper-large-v3-turbo` of OpenAI's model. Initial download
-needs network and substantial disk/RAM. Sources: [OpenAI model card](https://huggingface.co/openai/whisper-large-v3-turbo),
-[faster-whisper alias mapping](https://github.com/SYSTRAN/faster-whisper/blob/v1.2.1/faster_whisper/utils.py),
+The deployed selection is the faster-whisper `small` alias, loaded once and
+configurable through `WHISPER_MODEL`. Initial download needs network/disk/RAM;
+CI tests mock loading. Historical large-model benchmarks are reference data only;
+the 180s large-model measurement mentioned in re-review was affected by parallel
+work and is not a deployment recommendation. Sources: [faster-whisper alias mapping](https://github.com/SYSTRAN/faster-whisper/blob/v1.2.1/faster_whisper/utils.py),
 [CTranslate2 unload API](https://opennmt.net/CTranslate2/python/ctranslate2.models.Whisper.html#ctranslate2.models.Whisper.unload_model),
 [tqdm public lock API](https://tqdm.github.io/docs/tqdm/#set_lock).
 Model and faster-whisper are MIT licensed; preserve notices when redistributing.

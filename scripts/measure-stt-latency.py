@@ -148,7 +148,7 @@ def run(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--models', nargs='+', default=['small', 'large-v3-turbo'])
+    parser.add_argument('--models', nargs='+', default=['small'])
     parser.add_argument('--lengths', type=int, nargs='+', default=[5, 15, 30, 60])
     parser.add_argument('--repeats', type=int, default=3)
     parser.add_argument('--threads', type=int, default=min(4, getattr(os, 'process_cpu_count', os.cpu_count)() or 1))

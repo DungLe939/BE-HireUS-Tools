@@ -15,7 +15,7 @@
   - **Phân hệ CV/Profile:** Chờ phân hệ thật. Trường `cvId` là tùy chọn; chừa `CvProvider` interface + `EmptyCvProvider` rỗng. Chế độ không CV (`FR-VMI-04`) chạy bình thường; khi có CV thì lưu **bản chụp (`cvSnapshot`)** ngay thời điểm tạo phiên (`FR-VMI-23`).
   - **OpenAPI Contract:** Backend sở hữu contract tại `backend/contracts/vmi.openapi.yaml` (không cài `@nestjs/swagger` nếu không được yêu cầu). Viết/cập nhật contract trước khi code cho mỗi nhóm endpoint.
   - **Độ trễ chính thức (`NFR-VMI-01`):** Khi mạng ổn định, mỗi lần chờ không quá 10 giây: (a) từ lúc gửi audio đến lúc nhận văn bản STT, với clip trả lời thông thường đến khoảng 30 giây; (b) từ lúc nộp POST /answers đến khi có audio câu hỏi tiếp theo, gồm AI sinh câu hỏi và TTS. Không tính thời gian người dùng xác nhận/chỉnh sửa văn bản giữa hai bước. (Theo `Requirements_Analysis.md` hiện hành.)
-  - **Audio (STT/TTS):** Tách riêng `SttProvider` và `TtsProvider`, không gộp vào `AiProvider`. Đề xuất mặc định là **REST theo từng lượt** (upload file ghi âm 1 câu trả lời để STT trả text nháp cho bước xác nhận `FR-VMI-13`; endpoint riêng trả audio TTS cho từng câu hỏi), vì luồng nghiệp vụ yêu cầu người dùng xác nhận văn bản trước khi nộp; WebSocket/WebRTC chỉ xét nếu chuyển sang hội thoại liên tục. Nhà cung cấp STT/TTS **chưa chốt** — bắt buộc tra tài liệu kiểm tra chất lượng tiếng Việt, độ trễ và chốt trước khi code Task 7 và Task 8.
+  - **Audio (STT/TTS) — cập nhật 14/11/2026:** Tách `SttProvider`/`TtsProvider` khỏi `AiProvider`; REST theo từng lượt, STT trả nháp để xác nhận trước `/answers`. TTS dùng ZONOS3-Mini tự host; STT dùng faster-whisper **small cho mọi thiết bị**, CPU int8/CUDA float16. Theo số đo người dùng cung cấp, small đạt NFR-VMI-01 10s trên CPU ở các độ dài câu trả lời đã thử đến 180s (max khoảng 7,6s); chất lượng tiếng Việt/thuật ngữ IT chưa kiểm chứng bằng giọng người thật. `medium` là hướng dự phòng chưa đo; các model lớn hơn vẫn có thể override env nhưng không phải cấu hình đang dùng.
   - **Spec Kit:** Không chạy các lệnh `speckit-*` (chỉ có script `.ps1`, môi trường hiện tại chạy Fedora Linux).
 - **Phân định phạm vi Backend vs Frontend cho phần thiết bị âm thanh:**
   - `FR-VMI-07` (xin quyền mic trình duyệt), `FR-VMI-08` (đo cường độ tín hiệu real-time), `FR-VMI-09` (hiển thị hướng dẫn sửa lỗi mic), `BR-VMI-02` (cảnh báo mức âm = 0 suốt bài thử), và phần **audio visualizer** của `NFR-VMI-02`: **thuộc Frontend**, ngoài scope Backend.
@@ -72,7 +72,7 @@ Quy tắc chung cho Codex:
 | Task 6 | Xử lý sự cố, bảo toàn phiên & tạo lại báo cáo | FR-VMI-27, 28; NFR-VMI-04; U002, U004 | Task 3, Task 4 | Sẵn sàng | M |
 | Task 5 | API Lịch sử phiên trên Repository Interface *(Tùy chọn, nên làm lại cho đúng khi có DB ở Task 9)* | FR-VMI-21, 22, 23; NFR-VMI-03; U005 | Task 2, Task 4 | Sẵn sàng (Tùy chọn) | S |
 | Task 7 | Tích hợp TTS phát giọng nói câu hỏi | FR-VMI-11; NFR-VMI-01, 02, 03; U002 | Task 3 + Chốt provider TTS | Bị chặn (chờ chốt TTS) | M |
-| Task 8 | Tích hợp STT nhận diện câu trả lời & xác nhận | FR-VMI-12, 13; NFR-VMI-01, 02, 03; U002 | Task 3 + Chốt giao thức & STT | Bị chặn (chờ chốt STT/giao thức) | M |
+| Task 8 | Tích hợp STT nhận diện câu trả lời & xác nhận | FR-VMI-12, 13; NFR-VMI-01, 02, 03; U002 | Task 3 + REST theo lượt | Đã tích hợp; mặc định small mọi thiết bị | M |
 | Task 9 | Tích hợp Prisma DB, CV/Profile thật & Auth thật | FR-VMI-03, 21..23; NFR-VMI-03; U001, U005 | Task 4, Task 6 (Task 5 nếu chưa làm) + DB/CV/Auth từ thành viên khác | Bị chặn (chờ module ngoài) | M |
 
 # Chi tiết từng task
@@ -357,7 +357,7 @@ Quy tắc chung cho Codex:
 - **Phụ thuộc và điều kiện trước khi bắt đầu:** Task 3 hoàn thành + **Người dùng đã chốt giao thức audio và nhà cung cấp STT**.
 - **Quyết định còn mở (Quyết định cần người dùng chốt trước khi làm):**
   1. **Chốt giao thức audio:** Chấp nhận đề xuất **REST theo từng lượt** (upload file ghi âm 1 câu trả lời qua `multipart/form-data` vì có bước user xác nhận văn bản `FR-VMI-13`) hay yêu cầu chuyển sang WebSocket/WebRTC (hội thoại liên tục)?
-  2. **Chốt nhà cung cấp STT:** Tra tài liệu và chốt dùng nhà cung cấp nào (ví dụ Gemini audio input, Whisper/Groq, Deepgram, Google Cloud STT...) dựa trên độ chính xác nhận diện **tiếng Việt chuyên ngành IT**, tiếng Anh, và độ trễ đáp ứng `NFR-VMI-01` (lần chờ (a): từ lúc gửi audio đến khi nhận văn bản STT, với clip trả lời thông thường đến khoảng 30 giây).
+  2. **Nhà cung cấp STT đã chốt (14/11/2026):** faster-whisper tự host, mặc định `small` trên CPU/CUDA/auto. Cấu hình hiện dùng chỉ small; giữ override env để tương thích, `medium` là phương án dự phòng chưa đo độ trễ. Chưa xác minh chất lượng tiếng Việt/thuật ngữ IT bằng giọng thật; dùng NFR-VMI-01 theo Tổng quan.
   3. **Giới hạn kỹ thuật upload:** Định dạng audio Frontend sẽ gửi (`audio/webm`, `audio/wav`, `audio/mp4`...) và dung lượng tối đa mỗi câu trả lời 3 phút (ví dụ `10 MB` hoặc `15 MB`).
 - **File dự kiến tạo/sửa:**
   - `backend/contracts/vmi.openapi.yaml`

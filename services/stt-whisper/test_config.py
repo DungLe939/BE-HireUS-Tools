@@ -16,7 +16,7 @@ class WhisperConfigTests(unittest.TestCase):
         self.assertEqual((cpu.model, cpu.device, cpu.compute_type, cpu.cpu_threads), ('small', 'cpu', 'int8', 4))
         self.assertEqual((cpu.beam_size, cpu.vad_filter, cpu.condition_on_previous_text), (5, False, True))
         gpu = self.config(WHISPER_DEVICE='cuda')
-        self.assertEqual((gpu.model, gpu.compute_type), ('large-v3-turbo', 'float16'))
+        self.assertEqual((gpu.model, gpu.compute_type), ('small', 'float16'))
 
     def test_explicit_model_threads_compute_and_beam(self):
         for model in ['base', 'small', 'medium', 'large-v3-turbo']:
@@ -48,3 +48,9 @@ class WhisperConfigTests(unittest.TestCase):
         with patch.dict(sys.modules, {'faster_whisper': SimpleNamespace(WhisperModel=factory)}), patch.dict(os.environ, {}, clear=True):
             main.create_model(cfg)
         factory.assert_called_once_with('medium', device='cpu', compute_type='int8', cpu_threads=3, num_workers=1, download_root=None)
+
+
+    def test_small_is_default_for_every_device(self):
+        for device in ('cpu', 'cuda', 'auto'):
+            with self.subTest(device=device):
+                self.assertEqual(self.config(WHISPER_DEVICE=device).model, 'small')
