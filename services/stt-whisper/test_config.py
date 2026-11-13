@@ -38,8 +38,8 @@ class WhisperConfigTests(unittest.TestCase):
         self.assertEqual((cfg.vad_filter, cfg.condition_on_previous_text, cfg.beam_size), (False, True, 3))
 
     def test_thread_default_is_bounded_and_respects_visible_cores(self):
-        with patch.object(main.os, 'process_cpu_count', return_value=2): self.assertLessEqual(main.available_cpu_threads(), 2)
-        with patch.object(main.os, 'process_cpu_count', return_value=128): self.assertLessEqual(main.available_cpu_threads(), 4)
+        with patch.object(main.os, 'process_cpu_count', return_value=2, create=True): self.assertLessEqual(main.available_cpu_threads(), 2)
+        with patch.object(main.os, 'process_cpu_count', return_value=128, create=True): self.assertLessEqual(main.available_cpu_threads(), 4)
 
 
     def test_factory_passes_configuration_to_mock_model(self):

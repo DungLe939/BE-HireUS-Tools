@@ -655,5 +655,117 @@
         "resourceTrackerWarning": true
       }
     ]
+  },
+  "afterCleanup": {
+    "audioSource": "espeak-ng Vietnamese; repeated speech plus silence, NOT a human accuracy benchmark",
+    "reference": "Tôi muốn luyện tập phỏng vấn kỹ thuật phần mềm.",
+    "python": "3.14.7",
+    "visibleCpuCount": 16,
+    "cpuThreads": 4,
+    "serviceSha256": "68a7a6628d3afb20fafc82b83f9b701cf6db4695cba9dcdb0dc71050525f6fca",
+    "results": [
+      {
+        "model": "small",
+        "profile": "comparison",
+        "computeType": "int8",
+        "flags": {
+          "WHISPER_BEAM_SIZE": "5",
+          "WHISPER_VAD_FILTER": "false",
+          "WHISPER_CONDITION_ON_PREVIOUS_TEXT": "true"
+        },
+        "audioSeconds": 5,
+        "runs": [
+          {
+            "status": 200,
+            "latencyMs": 1312.475,
+            "wer": 1.0,
+            "referenceWords": 10,
+            "substitutions": 10,
+            "deletions": 0,
+            "insertions": 0
+          },
+          {
+            "status": 200,
+            "latencyMs": 1311.87,
+            "wer": 1.0,
+            "referenceWords": 10,
+            "substitutions": 10,
+            "deletions": 0,
+            "insertions": 0
+          },
+          {
+            "status": 200,
+            "latencyMs": 1381.942,
+            "wer": 1.0,
+            "referenceWords": 10,
+            "substitutions": 10,
+            "deletions": 0,
+            "insertions": 0
+          }
+        ],
+        "meanMs": 1335.429,
+        "maxMs": 1381.942,
+        "allSuccessful": true
+      },
+      {
+        "model": "large-v3-turbo",
+        "profile": "comparison",
+        "computeType": "int8",
+        "flags": {
+          "WHISPER_BEAM_SIZE": "5",
+          "WHISPER_VAD_FILTER": "false",
+          "WHISPER_CONDITION_ON_PREVIOUS_TEXT": "true"
+        },
+        "audioSeconds": 5,
+        "runs": [
+          {
+            "status": 200,
+            "latencyMs": 4697.978,
+            "wer": 0.4,
+            "referenceWords": 10,
+            "substitutions": 4,
+            "deletions": 0,
+            "insertions": 0
+          },
+          {
+            "status": 200,
+            "latencyMs": 4735.467,
+            "wer": 0.4,
+            "referenceWords": 10,
+            "substitutions": 4,
+            "deletions": 0,
+            "insertions": 0
+          },
+          {
+            "status": 200,
+            "latencyMs": 4839.07,
+            "wer": 0.4,
+            "referenceWords": 10,
+            "substitutions": 4,
+            "deletions": 0,
+            "insertions": 0
+          }
+        ],
+        "meanMs": 4757.505,
+        "maxMs": 4839.07,
+        "allSuccessful": true
+      }
+    ],
+    "shutdowns": [
+      {
+        "model": "small",
+        "profile": "comparison",
+        "exitCode": -15,
+        "leakedSemaphoreWarning": false,
+        "resourceTrackerWarning": false
+      },
+      {
+        "model": "large-v3-turbo",
+        "profile": "comparison",
+        "exitCode": -15,
+        "leakedSemaphoreWarning": false,
+        "resourceTrackerWarning": false
+      }
+    ]
   }
 }

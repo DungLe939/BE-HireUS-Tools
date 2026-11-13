@@ -4,6 +4,15 @@ Quyết định người dùng ngày 13/11/2026 thay Google TTS/PhoWhisper bằn
 Zyphra/ZONOS3-Mini và Whisper large-v3-turbo tự host. Code Task 0–6, prompt đánh
 giá, repository và `/answers` vẫn giữ nguyên. Node kiểm tra: **v24.22.3**.
 
+## NFR-VMI-01 hiện hành — quyết định sau review 13/11/2026
+
+Khi mạng ổn định, **10 giây cho từng lần chờ**: (a) từ lúc gửi audio đến lúc nhận
+text STT với clip trả lời thông thường đến khoảng 30s; (b) từ lúc nộp `/answers`
+đến lúc có audio câu hỏi tiếp theo (AI + TTS). Thời gian ứng viên xác nhận/chỉnh
+sửa text nằm giữa hai lần chờ, không cộng vào latency. Các mốc 5s trong kết quả
+lịch sử không còn là tiêu chí hiện hành. Clip upload vẫn có thể dài tới 195s;
+điều đó không biến mốc 30s nghiệm thu thành giới hạn upload.
+
 ## Việc 0: xác minh ZONOS3-Mini
 
 Đã đọc model card, repo runtime và danh sách giọng chính thức. Runtime nguồn
@@ -33,7 +42,14 @@ Nguồn chính thức:
 - [Registry mã ngôn ngữ](https://github.com/Zyphra/ZONOS3-Mini/blob/main/model/src/zonos3/registries/languages.json).
 - [Danh sách 27 giọng](https://huggingface.co/Zyphra/ZONOS3-Mini/blob/main/gguf/voices/README.md).
 
-Chạy CPU từ checkout upstream (không clone/build trong backend):
+## Điều kiện để smoke test TTS
+
+Chưa có runtime Zonos chạy thật trên máy này; không có số đo TTS hoặc AI+TTS.
+Cần C/C++ build tools (server C++17), CMake >=3.18, Rust/cargo stable cho
+zyphra-textnorm; Python/Hugging Face CLI để tải weights, và ggml/textnorm submodule.
+Đây là build server CPU, không phải desktop app (desktop có yêu cầu khác).
+Các lệnh dưới đây đã đối chiếu README/CMake upstream tại revision ghi ở đầu notes.
+Chạy từ checkout upstream riêng, không build/copy model vào backend:
 
 ```bash
 git clone https://github.com/Zyphra/ZONOS3-Mini.git zonos-runtime
@@ -50,6 +66,20 @@ hf download Zyphra/ZONOS3-Mini --include 'gguf/voices/*' --local-dir .
 Kiểm tra `/v2/health`, `/v2/speakers` trước khi gọi backend; ID phụ thuộc đường dẫn
 bộ giọng nên giữ nguyên cấu trúc `gguf/voices/<Language>/`. Không cần encoder
 để sử dụng embeddings/codes đóng gói sẵn. Không mở server trực tiếp ra Internet.
+
+Khi Zonos ở 127.0.0.1:1919 và Whisper ở 127.0.0.1:8001 đã ready, từ backend:
+
+```bash
+bash scripts/smoke-tts-stt.sh
+# Hoặc dùng một recording riêng; script không in/lưu transcript lâu dài:
+SMOKE_LANGUAGE=vi SMOKE_MIME=audio/wav bash scripts/smoke-tts-stt.sh /tmp/your-recording.wav
+```
+
+Script kiểm tra health hai service, tạo WAV bằng native Zonos API đã xác minh,
+kiểm tra PCM16/mono/44100 rồi thử STT; thư mục tạm được dọn. Chỉ dùng env export,
+không đọc `.env`. Đây là smoke service trực tiếp, không thay đo ownership/VMI hay
+AI+TTS ở NFR (b). Mới kiểm tra `bash -n`; chưa chạy smoke đầy đủ vì thiếu Zonos.
+Không sinh số đo giả hay dùng fake provider để chứng minh runtime TTS.
 
 ## Chuẩn hóa văn bản
 
@@ -120,7 +150,7 @@ startup; không tính tải model và startup vào latency request. Các số d�
 | AI Gemini | Chưa đo: không có key trong môi trường shell; không đọc `.env` |
 | TTS Zonos | Chưa đo: thiếu toolchain CMake/C++/Rust, chưa chạy runtime |
 
-**NFR-VMI-01 chưa đạt trong phép đo này**: riêng STT đã trên 5 giây. Ba mẫu dùng
+**Kết quả lịch sử trước review**: STT clip 3,28s mất 7,15–8,74s. Mốc NFR hiện là 10s cho từng lần chờ; mẫu cũ chưa kiểm tra clip đến 30s hoặc AI+TTS. Ba mẫu dùng
 cùng WAV tổng hợp chỉ kiểm tra đường chạy, chưa đánh giá độ chính xác hay khả năng
 chịu tải. Không suy diễn thành số đo cho GPU hoặc máy khác. Giọng Wyatt tiếng Việt
 còn cần nghe thử; chưa có bằng chứng runtime cho cả chu trình STT → AI → TTS.
@@ -234,3 +264,34 @@ hiện có. Giữ mọi cấu hình cũ explicit, không âm thầm ghi đè. Ti
 sạch. 600s là ngân sách vận hành, không phải mốc nghiệm thu NFR. Chưa đo 180s nên
 không hứa mọi clip 180s sẽ xong trong 600s. Khi có giọng thật, chọn timeout >= RTF
 xấu nhất × 180s + biên decode/upload; không dựa vào duration client chưa xác minh.
+
+
+## Review: shutdown và kiểm tra cuối
+
+Đã tái hiện cảnh báo một named semaphore sau cả bốn lifecycle đầu đo. tqdm/Hugging
+Face dùng multiprocessing RLock mặc dù service chỉ dùng thread; cấu hình bằng
+API public `tqdm.set_lock(threading.RLock())` trước model load để tránh tạo semaphore
+không cần thiết. Không tắt resource_tracker, không lọc warning, không unlink tên
+semaphore tùy ý. Nguồn: [tqdm set_lock](https://tqdm.github.io/docs/tqdm/#set_lock).
+
+Lifespan sở hữu một ThreadPoolExecutor; teardown chờ worker hoàn tất, hủy việc
+chưa chạy, gọi CTranslate2 `model.unload_model()`, clear cache VAD và giải phóng
+references. Thread lock điều phối overload được giữ đến lúc native inference xong
+ngay cả khi HTTP waiter hủy, nên không mở một hàng đợi không giới hạn.
+Nguồn: [CTranslate2 unload API](https://opennmt.net/CTranslate2/python/ctranslate2.models.Whisper.html#ctranslate2.models.Whisper.unload_model).
+
+Sau sửa đã nạp model thật small và large-v3-turbo, warmup + ba request 5s/model,
+sau đó SIGTERM uvicorn. **2/2 shutdown không còn warning resource_tracker/leaked
+semaphore**; đợi thêm 0,5s để tracker flush rồi đọc log. Exit -15 là uvicorn phát
+lại SIGTERM sau cleanup, không tự coi là thất bại. Artifact JSON có cả trước/sau.
+Không ngoại suy thành bảo đảm cho SIGKILL hoặc native inference đang treo.
+
+Kiểm tra cuối: Node v24.22.3; build pass; **285 unit/8 suites**, **160 e2e/7 suites**,
+**19 test service Python**, **3 test script WER**, `bash -n` smoke script, checker
+tài liệu. Baseline trước review: 252/160/9. Hai file test local có sẵn được giữ
+nguyên phần review, không đưa các hunk đó vào ba commit sửa này.
+
+Quyết định NFR 10s đã đồng bộ PROJECT_CONTEXT, VMI_CONTEXT, đặc tả VMI, Requirements
+Analysis Markdown/HTML và README nguồn. Bản ghép nguyên văn giữ mốc cũ có chú thích
+lịch sử, không dùng làm tiêu chí mới. TASKS.md local không được sửa theo giới hạn
+đã đặt ở đầu tác vụ. Không thay máy trạng thái, AI/prompt/điểm, endpoint cũ hoặc FE.

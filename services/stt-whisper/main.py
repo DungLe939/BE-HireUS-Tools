@@ -1,4 +1,6 @@
 """Loopback-only Whisper service. No audio/transcript/filename logging."""
+import asyncio
+import gc
 import json
 import logging
 import os
@@ -6,6 +8,7 @@ import re
 import shutil
 import subprocess
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,7 +17,6 @@ from typing import Literal
 
 import numpy as np
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.concurrency import run_in_threadpool
 from starlette.responses import JSONResponse
 
 HARD_MAX_BYTES = 15 * 1024 * 1024
@@ -93,10 +95,20 @@ def whisper_config():
 
 
 def create_model(config):
+    # Hugging Face/tqdm otherwise creates a multiprocessing RLock, although this
+    # single-process service only uses threads. Configure its public lock API
+    # before importing/downloading the model; no tracker warnings are suppressed.
+    from tqdm import tqdm
+    tqdm.set_lock(threading.RLock())
     from faster_whisper import WhisperModel
     return WhisperModel(config.model, device=config.device, compute_type=config.compute_type,
                         cpu_threads=config.cpu_threads, num_workers=1,
                         download_root=os.environ.get('WHISPER_MODEL_CACHE'))
+
+
+def clear_vad_cache():
+    from faster_whisper.vad import get_vad_model
+    get_vad_model.cache_clear()
 
 
 @asynccontextmanager
@@ -105,12 +117,43 @@ async def lifespan(app):
         raise RuntimeError("Install ffmpeg and ffprobe and add both to PATH.")
     limits()
     app.state.config = whisper_config()
-    app.state.model = create_model(app.state.config)
-    app.state.lock = threading.Lock()
-    app.state.ready = True
-    yield
-    app.state.ready = False
-    del app.state.model
+    model = create_model(app.state.config)
+    executor = None
+    try:
+        executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='vmi-asr')
+        app.state.executor = executor
+        app.state.dispatch_lock = threading.Lock()
+        app.state.model = model
+        app.state.lock = threading.Lock()
+        app.state.ready = True
+        yield
+    finally:
+        app.state.ready = False
+        if executor is not None:
+            executor.shutdown(wait=True, cancel_futures=True)
+        try:
+            model.model.unload_model()
+        finally:
+            clear_vad_cache()
+            for name in ('model', 'executor', 'dispatch_lock', 'lock', 'config'):
+                if hasattr(app.state, name): delattr(app.state, name)
+            del model
+            gc.collect()
+
+
+async def run_in_threadpool(operation, *args):
+    gate = app.state.dispatch_lock
+    if not gate.acquire(blocking=False):
+        raise failure(503, 'VMI_STT_UNAVAILABLE')
+    try:
+        future = app.state.executor.submit(operation, *args)
+    except Exception:
+        gate.release()
+        raise
+    # Keep overload protection until native inference actually finishes, even
+    # when its HTTP waiter is cancelled (cancellation cannot stop CTranslate2).
+    future.add_done_callback(lambda _: gate.release())
+    return await asyncio.wrap_future(future)
 
 
 app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None)
@@ -210,7 +253,7 @@ def recognize(data, mime, language):
 
 
 @app.get("/health")
-def health():
+async def health():
     if not getattr(app.state, "ready", False):
         raise failure(503, "VMI_STT_UNAVAILABLE")
     return {"status": "ok"}

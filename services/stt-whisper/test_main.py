@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 import asyncio
 import io
 import shutil
@@ -26,9 +27,14 @@ def wav(seconds=0.25):
 
 class WhisperTests(unittest.TestCase):
     def setUp(self):
+        main.app.state.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="vmi-asr-test")
+        main.app.state.dispatch_lock = threading.Lock()
         main.app.state.lock = threading.Lock()
         main.app.state.model = Mock()
         main.app.state.model.transcribe.return_value = (iter([SimpleNamespace(text=" Draft fixture ")]), None)
+
+    def tearDown(self):
+        main.app.state.executor.shutdown(wait=True, cancel_futures=True)
 
     def test_forces_language_and_consumes_lazy_segments(self):
         for language in ("vi", "en"):
