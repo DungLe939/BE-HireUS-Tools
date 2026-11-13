@@ -151,3 +151,21 @@ Các file triển khai: `interfaces/{tts,stt}-provider.interface.ts`,
 `services/stt-whisper/{main.py,test_main.py,requirements.txt,README.md}`;
 `contracts/vmi.openapi.yaml`, `.env.example` và notes này.
 Ngữ cảnh VMI được cập nhật local trong repo documents riêng; không sửa yêu cầu gốc.
+
+## Sửa review: quy tắc số theo ngôn ngữ (13/11/2026)
+
+Việt: dấu chấm nhóm từng ba chữ số (`10.000`, `1.250.000`); dấu phẩy luôn là
+thập phân (`3,5`, kể cả `10,000`). Dấu chấm một nhóm không đủ ba chữ số như `1.5`
+được đọc thập phân; `2.500` là số nguyên 2500. Anh: dấu phẩy nhóm nghìn được bỏ
+trước khi giao NeMo, dấu chấm thập phân được giữ. Nhóm sai và số nguyên trên
+12 chữ số giữ nguyên, không đọc một phần.
+
+URL, IPv4 hợp lệ, ngày tháng, phiên bản có `v` hoặc nhãn `version`/`phiên bản`,
+semver có hậu tố được giữ nguyên cả ký hiệu. Semver trần thông thường `1.2.3`
+không khớp nhóm nghìn nên cũng giữ nguyên. Chuỗi trần như `1.250.123` không thể
+phân biệt tuyệt đối số với phiên bản: mặc định coi là số nhóm nghìn ở phiên Việt;
+viết `v1.250.123` hoặc `version 1.250.123` nếu muốn giữ như phiên bản.
+
+Kế hoạch sửa review: (1) quy tắc số + regression tests; (2) cấu hình Whisper,
+script đo HTTP và ma trận hai model; (3) teardown tài nguyên, smoke shutdown và
+cập nhật NFR-VMI-01 theo quyết định mới. Mỗi mục có commit riêng trong backend.

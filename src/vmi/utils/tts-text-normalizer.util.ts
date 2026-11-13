@@ -24,18 +24,45 @@ function integer(raw: string): string {
   return groups.flatMap((g, i) => g ? [group(g, i > 0 && g < 100), ['', 'nghìn', 'triệu', 'tỷ'][groups.length - i - 1]] : []).join(' ').trim();
 }
 
-/** A small pronunciation aid, never applied to stored questions or answers. */
-export function normalizeTtsText(text: string, language: VmiLanguage): string {
-  let value = text.normalize('NFC').replace(/\s+/gu, ' ').trim();
-  if (language !== VmiLanguage.VI) return value;
+// URL, labelled versions, semver suffixes, dates and IPv4 are opaque to TTS edits.
+const protectedTokens = /(?:[a-z][a-z0-9+.-]*:\/\/|www\.)[^\s<>]+|(?:version|phiên bản)\s+v?\d+(?:\.\d+)+(?:[-+][\w.-]+)?|\bv\d+(?:\.\d+)+(?:[-+][\w.-]+)?|\b\d+\.\d+\.\d+(?:-[\w.-]+(?:\+[\w.-]+)?|\+[\w.-]+)|\b(?:\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4})\b|\b(?:\d{1,3}\.){3}\d{1,3}\b/giu;
+
+function normalizeSegment(text: string, language: VmiLanguage): string {
+  let value = text.replace(/(?<![\p{L}\p{N}_./:-])\d(?:[\d.,]*\d)?(?![\p{L}\p{N}_/:-]|[.,]\d)/gu, raw => {
+    if (language === VmiLanguage.EN) {
+      return /^\d{1,3}(?:,\d{3})+(?:\.\d+)?$/.test(raw) ? raw.replace(/,/g, '') : raw;
+    }
+    let whole: string;
+    let fraction: string | undefined;
+    if (/^\d{1,3}(?:\.\d{3})+(?:,\d+)?$/.test(raw)) {
+      [whole, fraction] = raw.split(','); whole = whole.replace(/\./g, '');
+    } else if (/^\d+(?:,\d+)?$/.test(raw)) {
+      [whole, fraction] = raw.split(',');
+    } else if (/^\d+\.\d+$/.test(raw)) {
+      [whole, fraction] = raw.split('.');
+    } else return raw;
+    if (whole.length > 12) return raw;
+    return integer(whole) + (fraction ? ' phẩy ' + fraction.split('').map(d => digits[Number(d)]).join(' ') : '');
+  });
+  if (language === VmiLanguage.EN) return value;
   const terms: Record<string, string> = { 'REST API': 'rét ây pi ai', 'API': 'ây pi ai', 'SQL': 'ét kiu eo',
     'CI/CD': 'xi ai xi đi', 'HTTP': 'hát tê tê pê', 'HTTPS': 'hát tê tê pê ét', 'OOP': 'âu âu pi', 'CPU': 'xi pi iu' };
   value = value.replace(/\b(?:REST\s+API|CI\/CD|HTTPS|HTTP|API|SQL|OOP|CPU)\b/gi, term => terms[term.toUpperCase().replace(/\s+/g, ' ')]);
-  value = value.replace(/%/g, ' phần trăm ').replace(/&/g, ' và ').replace(/\+/g, ' cộng ');
-  // Avoid rewriting identifiers, versions (1.2.3), dates, URLs and code-like tokens.
-  value = value.replace(/(?<![\p{L}\p{N}_./:-])\d{1,12}(?:[.,]\d+)?(?![\p{L}\p{N}_./:-])/gu, number => {
-    const [whole, fraction] = number.split(/[.,]/);
-    return integer(whole) + (fraction ? ' phẩy ' + fraction.split('').map(d => digits[Number(d)]).join(' ') : '');
-  });
-  return value.replace(/\s+/gu, ' ').trim();
+  return value.replace(/%/g, ' phần trăm ').replace(/&/g, ' và ').replace(/\+/g, ' cộng ');
+}
+
+/** A pronunciation copy only; saved questions and answers never change. */
+export function normalizeTtsText(text: string, language: VmiLanguage): string {
+  const value = text.normalize('NFC').replace(/\s+/gu, ' ').trim();
+  const parts: string[] = [];
+  let offset = 0;
+  for (const match of value.matchAll(protectedTokens)) {
+    parts.push(normalizeSegment(value.slice(offset, match.index), language));
+    const token = match[0];
+    const ipv4 = /^(?:\d{1,3}\.){3}\d{1,3}$/.test(token);
+    parts.push(ipv4 && token.split('.').some(n => Number(n) > 255) ? normalizeSegment(token, language) : token);
+    offset = match.index + token.length;
+  }
+  parts.push(normalizeSegment(value.slice(offset), language));
+  return parts.join('').replace(/\s+/gu, ' ').trim();
 }
