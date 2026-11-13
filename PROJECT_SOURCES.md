@@ -1,53 +1,39 @@
-# Project Sources
+# Nguồn yêu cầu HireUS Tools
 
-## Official documentation repository
+## Tìm checkout tài liệu
 
-`CNPM-Docs` is the separate source-of-truth repository for HireUS Tools business requirements,
-the Project Proposal, shared plans, cross-repository design, and confirmed project decisions.
+Trong workspace HireUS-Tools, repo tài liệu là `../documents/` tính từ repo này.
+Tên GitHub là Docs-HireUS-Tools; một số bản cũ gọi là CNPM-Docs.
+Nếu mở repo độc lập, dùng checkout tài liệu được cung cấp thay vì yêu cầu đổi tên.
+Không có nguồn thì hỏi đường dẫn và tiếp tục phần kỹ thuật độc lập.
 
-## Important source paths
+## Nội dung và phiên bản
 
-Paths below are relative to the root of `CNPM-Docs`:
+Đọc [quy tắc nguồn](../documents/.agents/rules/source-of-truth.md).
+Theo chỉ dẫn của nhóm, khi cùng nội dung có mâu thuẫn, dùng **phiên bản nội dung
+mới nhất**; xét revision/lịch sử thay đổi, không dùng ngày copy file.
 
-1. `.agents/rules/source-of-truth.md` — source hierarchy, evidence rules, and documentation scope.
-2. `docs/Week01/Submission/Project_Proposal.md` and `.html` — proposal scope, technology, and plan;
-   use according to the confirmation and conflict rules in the source-of-truth file.
-3. `docs/PROJECT_CONTEXT.md` — navigation summary; it does not replace primary evidence.
-4. `docs/Week01/Team_Decision/Material/HireUS_Implementation_Plan.md` — plan summary, not an
-   approval record or proof that a feature was implemented.
+| Cần xác định | Đọc |
+| --- | --- |
+| Hành vi hiện tại của 4 phân hệ | [Requirements Analysis](../documents/docs/Week02/Submission/Requirements_Analysis.md) và [HTML](../documents/docs/Week02/Submission/Requirements_Analysis.html) |
+| Bối cảnh, nhân sự/kế hoạch ban đầu | [Proposal](../documents/docs/Week01/Submission/Project_Proposal.md), trong phạm vi chưa bị bản mới thay |
+| Bài nguồn/ghi chú tổng hợp | [README Week02](../documents/docs/Week02/Submission/README.md), đối chiếu bản nộp mới hơn |
+| Bài nộp | Template và thông báo của đợt tương ứng trong repo tài liệu |
 
-For a specific task, also consult the relevant original course notice/template, meeting record,
-or implementation evidence named by `source-of-truth.md`. Do not treat a downloaded or AI-written
-summary as confirmation by itself.
+Spec/plan/tasks ở repo này chỉ ghi phần triển khai và dẫn nguồn. Không tự chọn auth,
+quyền truy cập, Profile schema hoặc công thức chưa được quyết định.
+Nếu bản mới tự mâu thuẫn hoặc chưa xác định được thứ tự, hỏi phần cần quyết định
+và tiếp tục việc độc lập. Kế hoạch/prototype không chứng minh implementation.
 
-## Providing sources to Codex
+## Truy vết và chủ sở hữu
 
-Make the `CNPM-Docs` checkout available in the Codex workspace. If it is checked out as a sibling
-repository, `../CNPM-Docs` is a convenient relative location from Backend. Otherwise, attach the
-relevant files or paste their contents and identify their repository-relative paths. Do not put a
-machine-specific absolute path in tracked documentation.
+Ghi commit/revision và các đường dẫn nguồn dùng cho tính năng.
+Nguồn có sửa local thì ghi rõ file và diff/hash liên quan.
+Backend sở hữu HTTP contract; xem [contracts/README.md](contracts/README.md).
+FE tích hợp ghi phiên bản contract và dẫn về nguồn đó.
 
-If a required source cannot be accessed, state which source is unverified and ask for its path or
-file. Do not infer requirements from its name or from a secondary summary. Continue work that does
-not depend on the missing source.
-
-## Confirmed and proposed decisions
-
-Follow the precedence and evidence rules in `.agents/rules/source-of-truth.md`. Label information
-as confirmed only when supported by the applicable source or current user instruction. Keep
-proposals and plans labeled as proposed/planned; keep implementation, tests, submission, and
-approval as separate states. A plan is not proof of completed work.
-
-## Recording source revision
-
-When a task depends on a particular source revision, record the `CNPM-Docs` Git commit SHA using
-`git -C <CNPM-Docs checkout> rev-parse HEAD`, the repository-relative files consulted, and whether
-those files have local changes. If a consulted file is modified or untracked, record its path and
-capture the relevant diff or file hash; do not assume `HEAD` describes uncommitted content. For
-Frontend synchronization, record the Backend contract version or commit as well.
-
-## Documentation ownership
-
-Do not update `CNPM-Docs` while working in Backend. If shared requirements, architecture, plans,
-or decisions need a change, report the proposed change and the evidence so it can be applied in the
-documentation repository by its owner.
+Chỉ sửa tài liệu hoặc repo khác khi tác vụ gồm phần phối hợp đó; đọc hướng dẫn repo
+kia trước. Quy trình bàn giao/push của nhóm gồm đối chiếu và sửa tài liệu kỹ thuật,
+tổng hợp liên quan đến thay đổi; yêu cầu nghiệp vụ vẫn chỉ đổi theo quyết định mới
+có nguồn. Dùng skill `docs-maintenance` trong checkout tài liệu để sửa/gộp/bỏ bản
+dẫn xuất lỗi thời và cập nhật callers. Không tự sync Git/Drive chỉ vì đang đọc nguồn.

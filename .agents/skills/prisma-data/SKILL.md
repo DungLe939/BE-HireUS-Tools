@@ -1,21 +1,28 @@
 ---
 name: prisma-data
-description: Review or change a Prisma/database layer only for an explicitly scoped and approved task.
+description: Thiết kế hoặc sửa schema, query, migration và quyền dữ liệu cho HireUS khi đầu việc có persistence; không tự cài Prisma.
 ---
 
-# Prisma and Database Work
+# Làm việc với dữ liệu
 
-Use this skill only when the task explicitly covers database design, Prisma, queries, or
-migrations. First consult `PROJECT_SOURCES.md` and the relevant approved requirements, then inspect
-the installed dependencies, current schema, migrations, and actual target environment. This
-Backend baseline does not currently configure Prisma or PostgreSQL; do not install or assume them
-without an approved task.
+Đọc [AGENTS.md](../../../AGENTS.md), [PROJECT_SOURCES.md](../../../PROJECT_SOURCES.md)
+và schema/migrations/query thực tế trên nhánh. Nếu chưa có Prisma/database,
+phân biệt tác vụ thiết kế với cài đặt; chỉ thêm dependency và kết nối trong phạm vi được giao.
 
-For an approved change, analyze relationships, constraints, indexes, transactions, access
-controls, and data exposure. Validate and authorize inputs before building queries, and avoid
-returning persistence entities when they expose fields outside the API contract. Describe migration
-effects and data-loss risks before execution.
+Xác định entities và semantics từ luồng đang làm:
+- Chủ sở hữu CV/thành tựu/lịch sử, quan hệ theo dõi nguồn và dữ liệu bài dùng chung.
+- CV/JD/cấu hình/transcript được chụp lại ở thời điểm nào; lịch sử không phụ thuộc
+  vào việc tài nguyên gốc bị sửa.
+- Phân biệt xóa quan hệ cá nhân, bỏ đánh dấu lưu và xóa dữ liệu dùng chung.
+- Constraints, indexes, transactions và uniqueness phục vụ hành vi cụ thể,
+  đặc biệt khi có request lặp hoặc tác vụ định kỳ.
 
-Never run `migrate reset`, destructive `db push`, database deletion, or seeding against important
-data without explicit authorization and a reviewed recovery plan. Add relevant tests for approved
-data behavior and report validation. Do not modify CNPM-Docs or commit/push unless requested.
+Không suy ra schema từ tên màn hình hay tự chọn các trường Profile còn chưa thống nhất.
+Validate input và kiểm tra quyền trong query/boundary phù hợp; không trả entity
+với fields ngoài contract.
+
+Trước migration, xem SQL và tác động trên dữ liệu/môi trường đích.
+Không reset, destructive push hoặc seed dữ liệu quan trọng nếu chưa có quyền rõ.
+Kiểm tra constraints, quyền tài khoản và snapshot/retry bằng tests phù hợp;
+không dùng database thật của nhóm cho một test phá hủy.
+Báo schema/migration đã tạo, thao tác thực sự chạy và phần chỉ mới thiết kế.
