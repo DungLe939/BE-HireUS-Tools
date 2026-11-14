@@ -49,10 +49,18 @@ Chỉ giao reviewer riêng khi tác vụ cho phép và công cụ hỗ trợ; kh
 
 ## Kiểm tra và bàn giao
 
-Khi bắt đầu việc có sửa, kiểm tra nhánh/upstream và thay đổi local; nếu chưa cập nhật
-nguồn cho đầu việc, nhắc pull một lần. Yêu cầu cập nhật/push cho phép fetch remote
-liên quan; không pull khi chỉ đọc local. Dùng fast-forward khi sạch và chỉ behind;
-không tự stash/reset hoặc force-push. Nếu phân kỳ, xem hai phía và bảo toàn lịch sử.
+Khi bắt đầu việc có sửa code/tài liệu chung, tự fetch `origin/main` và tích hợp vào
+nhánh hiện tại một lần cho đầu việc, không chờ người dùng nhắc pull. Chỉ dẫn đích khác
+được ưu tiên; upstream cá nhân không thay nhánh nền main. Trong workspace dùng
+`python3 ../.agents/scripts/sync_main.py --repo .` từ repo này.
+Clone độc lập: fetch main, kiểm tra tree; nếu main đã nằm trong HEAD thì tiếp tục,
+nếu tree sạch thì fast-forward hoặc merge bảo toàn lịch sử với
+`--no-autostash --no-overwrite-ignore`, không tự đổi nhánh hay checkout submodule.
+Được tạo merge commit tích hợp main; không commit công việc chưa lưu hoặc push.
+Tree bẩn cần tích hợp thì giữ nguyên file/index; conflict ở lượt merge vừa bắt đầu
+từ tree sạch thì abort lượt đó và báo, không abort thao tác Git có sẵn của người dùng.
+Không stash/reset/rebase/force-push hoặc bỏ hook. Mạng lỗi thì báo chưa xác minh main.
+Chỉ đọc/review/plan riêng hoặc chỉ dẫn offline/không sync thì không tự tích hợp.
 
 Trước bàn giao/push, xem cả commit chưa push, diff và file mới liên quan; đối chiếu
 README/cách chạy, config mẫu, contract, spec/tasks và tài liệu yêu cầu. Cập nhật
@@ -77,7 +85,8 @@ Mục tiêu coverage trong Proposal là kế hoạch; không tự đặt quality
 Phần cập nhật tài liệu liên quan trước bàn giao/push thuộc quy trình nhóm ở trên;
 sửa repo khác ngoài phần đó cần yêu cầu phối hợp. Đọc hướng dẫn repo kia trước khi sửa.
 Giữ nhánh đang làm và thay đổi local. Skills/hướng dẫn được chia sẻ qua Git,
-không thêm vào ignore. Chỉ commit/push khi được yêu cầu.
+không thêm vào ignore. Chỉ commit công việc/push khi được yêu cầu; merge commit tích hợp
+main ở đầu việc là ngoại lệ được nhóm cho phép ở trên.
 Báo đã làm gì, kiểm tra thực sự chạy, tài liệu sửa/giữ/xóa và lý do, phần còn thiếu;
 giải thích luồng đáng chú ý bằng tiếng Việt. Push bị remote đi trước thì fetch,
 tích hợp cùng đích đã xác minh, rà lại tài liệu và kiểm tra phần bị tác động.
