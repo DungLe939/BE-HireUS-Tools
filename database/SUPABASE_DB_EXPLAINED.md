@@ -1,5 +1,9 @@
 # Cơ sở dữ liệu Job Tracking
 
+> Tài liệu thiết kế; chưa xác minh constraint, trigger hoặc policy trên Supabase thực tế. Repo chưa có SQL schema/migration/policy tương ứng để đối chiếu. Không coi phần phân quyền dưới đây là cấu hình đã triển khai.
+
+Nguồn yêu cầu: [Requirements_Analysis.md](https://github.com/DungLe939/Docs-HireUS-Tools/blob/ebb898f5f0a24b311e5887ac238b6f2c931848c1/docs/Week02/Submission/Requirements_Analysis.md), revision `ebb898f5f0a24b311e5887ac238b6f2c931848c1`; file không có thay đổi local khi đối chiếu. Các mục áp dụng: FR-JT-01, FR-JT-05, FR-JT-07, BR-JT-02, UC-JT-04. Snapshot `0b9adc8` được review viện dẫn chưa có trong checkout để đối chiếu lại.
+
 - Nền tảng: Supabase / PostgreSQL; schema: `public`.
 - Gồm 6 bảng; `users` dùng chung, liên kết Supabase Auth.
 - Quy ước: **PK** — khóa chính; **FK** — khóa ngoại; **UQ** — duy nhất; **NN** — không NULL. Các trường không ghi NN và không thuộc PK được phép NULL.
@@ -156,7 +160,7 @@ UQ: `(user_id, job_id)`.
 
 Các FK dùng hành vi `ON UPDATE NO ACTION` mặc định.
 
-## 5. Trigger và phân quyền trong SQL
+## 5. Thiết kế trigger và phân quyền — chưa xác minh SQL
 
 | Thành phần | Hành vi |
 |---|---|
@@ -168,12 +172,14 @@ Các FK dùng hành vi `ON UPDATE NO ACTION` mặc định.
 | `authenticated` | Chỉ SELECT, chịu giới hạn RLS |
 | `service_role` | Đọc/ghi qua backend; backend kiểm tra quyền người dùng |
 
-Chính sách SELECT của `authenticated`:
+Phạm vi SELECT dự kiến của `authenticated`:
 
 - `users`: chỉ hồ sơ của mình.
 - `job_sources`: đọc các nguồn.
 - `users_follow`, `users_saved_posts`, `notifications`: chỉ dòng có `user_id = auth.uid()`.
-- `job_opportunities`: tin `eligible` thuộc nguồn đang theo dõi `active`, hoặc tin đã lưu, hoặc tin từng nhận thông báo.
+- `job_opportunities`: tin đã được phân phối cho tài khoản, tin đã lưu hoặc tin từng nhận thông báo. Quyền đọc lịch sử độc lập với trạng thái `active`/`paused` hiện tại. Cơ chế ghi nhận phân phối và SQL policy chưa được chốt; xem mục 6.1.
+- Điều kiện nguồn `active` áp dụng khi nhận tin mới, không đủ làm điều kiện duy nhất cho quyền đọc tin cũ. Nhánh `eligible` + nguồn `active`, cộng tin đã lưu/thông báo, chưa bảo đảm giữ mọi tin cũ khi tạm dừng.
+- `hidden_at` loại tin khỏi danh sách cá nhân, không tự thu hồi mọi quyền xem chi tiết hoặc lịch sử thông báo. Lọc danh sách riêng theo người dùng trước phân trang; xem [ví dụ SDK/REST](SUPABASE_READ_ACCESS.md#3-ví-dụ-truy-vấn).
 - Hàm trigger tạo hồ sơ dùng `SECURITY DEFINER`, `search_path` rỗng; thu hồi quyền gọi trực tiếp hai hàm trigger khỏi PUBLIC, `anon`, `authenticated`.
 
 ## 6. Quy tắc xử lý tại backend
@@ -188,12 +194,30 @@ Chính sách SELECT của `authenticated`:
 - Trường trích xuất thiếu căn cứ để NULL; chỉ đặt `original_status = 'deleted'` khi xác định bài đã xóa.
 - URL được chuẩn hóa trước khi lưu; việc thu thập, AI, cá nhân hóa và tạo thông báo do backend thực hiện.
 
+### 6.1. Lịch sử phân phối khi tạm dừng — thiết kế còn thiếu
+
+- Yêu cầu: ghi nhận tin đã thuộc lịch sử của từng tài khoản; tin cũ giữ quyền xem sau khi nguồn chuyển sang `paused`, kể cả chưa lưu hoặc chưa có thông báo.
+- Sáu bảng trên chưa ghi nhận mọi lần phân phối. `notifications` không thay thế lịch sử này vì không phải tin nào cũng tạo thông báo. Không suy ra quyền lịch sử chỉ từ `collected_at`, `followed_at` hoặc `resumed_at`.
+- Đề xuất cần nhóm chốt: bản ghi phân phối riêng theo `(user_id, job_id)` và thời điểm phân phối đầu tiên; giữ bản ghi khi tạm dừng. Đây chưa phải bảng/migration được bổ sung trong PR.
+- Khi phân phối mới: chỉ nhận tin `eligible` cho người đang theo dõi `active`, kiểm tra trạng thái trước khi ghi nhận. Khi `paused`: không thêm phân phối mới. Khi tiếp tục: chỉ kích hoạt lại từ lượt kiểm tra kế tiếp; không tự cấp quyền cho toàn bộ tin của nguồn.
+- Khi đọc: dựa trên lịch sử phân phối và các quyền lưu/thông báo đã chốt. Danh sách cá nhân thêm `NOT EXISTS` dòng `users_saved_posts` của chính tài khoản có `hidden_at IS NOT NULL`, rồi mới sắp xếp/phân trang.
+- Cần bổ sung SQL/migration/policy và nguồn revision tương ứng trước khi xác nhận tích hợp danh sách cá nhân đầy đủ. Chưa kiểm thử RLS nhiều tài khoản.
+
+Kiểm tra cần thực hiện:
+
+| Tình huống | Kết quả mong đợi |
+|---|---|
+| A ẩn một tin rồi tải lại | Danh sách A không có tin; danh sách B không đổi |
+| A tạm dừng nguồn | Tin đã phân phối cho A vẫn xem được |
+| Nguồn có tin mới khi A tạm dừng | Không tự phân phối tin mới cho A |
+| A tiếp tục theo dõi | Nhận tin mới từ lượt kiểm tra kế tiếp |
+
 ## 7. Bảng dùng cho từng màn hình
 
 | Màn hình | Bảng truy vấn |
 |---|---|
 | Nguồn theo dõi | `users_follow` JOIN `job_sources` |
-| Danh sách tin | `job_opportunities` JOIN `users_follow`; đối chiếu `users_saved_posts`, `users.job_preferences` |
+| Danh sách tin | Tin thuộc lịch sử phân phối của tài khoản (cơ chế chưa chốt); đối chiếu `users_saved_posts.hidden_at` và `users.job_preferences` trước phân trang |
 | Tin đã lưu | `users_saved_posts` JOIN `job_opportunities` JOIN `job_sources` |
 | Thông báo | `notifications` JOIN `job_opportunities` JOIN `job_sources` |
 | Chi tiết tin | `job_opportunities` JOIN `job_sources`, kiểm tra quyền truy cập |
