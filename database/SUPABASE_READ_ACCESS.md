@@ -1,28 +1,16 @@
-# Đọc dữ liệu Supabase từ web
+# Đọc dữ liệu Job Tracking từ ứng dụng
 
-## 1. Thông tin cần gửi cho frontend
-
-Lấy hai giá trị trong Supabase Dashboard và cung cấp cho ứng dụng:
+## 1. Cần gì?
 
 | Thông tin | Ví dụ |
 |---|---|
 | Project URL | `https://<project-ref>.supabase.co` |
 | Publishable key | `sb_publishable_...` |
+| Tài khoản Supabase Auth | Email/password của người dùng, nếu policy yêu cầu đăng nhập |
 
-Cách lưu/đọc cấu hình tùy công nghệ ứng dụng; tên biến môi trường không bắt buộc theo mẫu nào.
+Ứng dụng dùng Project URL + Publishable key và đăng nhập bằng Supabase Auth. Các truy vấn chỉ trả về dữ liệu mà policy RLS của project cho phép. Không dùng secret/service-role key trên frontend.
 
-Frontend chỉ cần URL + publishable key; không dùng password PostgreSQL hoặc secret/service-role key. Publishable key không tự cấp quyền đọc dữ liệu.
-
-## 2. Cấu hình trên Supabase
-
-- Bật RLS, cấp `SELECT` và có policy đọc phù hợp cho `job_sources`, `job_opportunities`.
-- Với schema Job Tracking đã thống nhất: chưa đăng nhập không đọc được; người đăng nhập đọc các tin `eligible` thuộc nguồn theo dõi `active`, tin đã lưu hoặc từng nhận thông báo.
-- Tin mới upload thường là `pending`, nên có thể chưa hiển thị. `partial`/`complete` là trạng thái crawler local, không phải trạng thái sàng lọc trên Supabase.
-- Giữ policy hiện tại nếu dùng luồng đăng nhập. Muốn người chưa đăng nhập xem tin thì cần cấp quyền và thêm policy SELECT cho `anon` theo phạm vi muốn công khai.
-
-Phần này mô tả cấu hình; tài liệu không tự thay đổi quyền trên database. [Quyền và RLS](https://supabase.com/docs/guides/database/postgres/row-level-security)
-
-## 3. Ví dụ JavaScript với Supabase SDK
+## 2. Khởi tạo và đăng nhập
 
 ```bash
 npm install @supabase/supabase-js
@@ -31,32 +19,91 @@ npm install @supabase/supabase-js
 ```js
 import { createClient } from '@supabase/supabase-js'
 
-const supabase = createClient(
-  'https://<project-ref>.supabase.co',
-  'sb_publishable_...'
-)
+const PROJECT_URL = 'https://<project-ref>.supabase.co'
+const PUBLISHABLE_KEY = 'sb_publishable_...'
+const supabase = createClient(PROJECT_URL, PUBLISHABLE_KEY)
 
-// email/password do người dùng nhập; không ghi cứng trong frontend.
-const { error: authError } = await supabase.auth.signInWithPassword({
-  email,
-  password
-})
-if (authError) throw authError
-
-const { data: jobs, error } = await supabase
-  .from('job_opportunities')
-  .select('id, title, company_name, locations, original_url, deadline_at')
-  .order('collected_at', { ascending: false })
-  .limit(20)
-
+const { error } = await supabase.auth.signInWithPassword({ email, password })
 if (error) throw error
-console.log(jobs)
+
+async function read(query) {
+  const { data, error } = await query
+  if (error) throw error
+  return data
+}
 ```
 
-Đọc nhà tuyển dụng: đổi thành `.from('job_sources').select('id, name, source, url')`. SDK tự gửi phiên đăng nhập cho những lần truy vấn sau. [Supabase JavaScript](https://supabase.com/docs/reference/javascript/initializing)
+## 3. Ví dụ truy vấn
 
-## 4. Không thấy dữ liệu?
+### Nhà tuyển dụng TopCV
 
-Contact Cao nhé=)))))
+```js
+const sources = await read(supabase
+  .from('job_sources')
+  .select('id, name, source, url')
+  .ilike('source', 'topcv')
+  .order('id')
+  .range(0, 19))
+```
 
-Hoặc nhớ check lại kết nối wifi <(")
+### Danh sách tin kèm nhà tuyển dụng
+
+```js
+const jobs = await read(supabase
+  .from('job_opportunities')
+  .select(`id, title, company_name, locations, deadline_at, original_url,
+           job_sources(id, name, source, url)`)
+  .order('collected_at', { ascending: false })
+  .order('id', { ascending: false })
+  .range(0, 19))
+```
+
+### Tìm tin theo nguồn và tiêu đề
+
+```js
+const results = await read(supabase
+  .from('job_opportunities')
+  .select('id, title, locations, original_url')
+  .eq('source_id', sourceId)
+  .ilike('title', '%data%')
+  .order('id')
+  .limit(20))
+```
+
+### Chi tiết một tin
+
+```js
+const job = await read(supabase
+  .from('job_opportunities')
+  .select(`id, title, raw_content, requirements, positions, levels, locations,
+           extraction_evidence, deadline_at, closed_at, original_url,
+           job_sources(id, name, url)`)
+  .eq('id', jobId)
+  .maybeSingle())
+```
+
+## 4. Gọi REST API bằng HTTP/fetch
+
+```js
+const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+if (sessionError) throw sessionError
+if (!session) throw new Error('Chưa đăng nhập')
+const accessToken = session.access_token
+
+const endpoint = new URL('/rest/v1/job_opportunities', PROJECT_URL)
+endpoint.search = new URLSearchParams({
+  select: 'id,title,locations,original_url',
+  order: 'collected_at.desc,id.desc',
+  limit: '20',
+  offset: '0'
+})
+
+const response = await fetch(endpoint, {
+  headers: {
+    apikey: PUBLISHABLE_KEY,
+    Authorization: `Bearer ${accessToken}`
+  }
+})
+const result = await response.json()
+if (!response.ok) throw new Error(result.message || `HTTP ${response.status}`)
+```
