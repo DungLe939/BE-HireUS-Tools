@@ -1,6 +1,6 @@
 # Đọc dữ liệu Job Tracking từ ứng dụng
 
-> Ví dụ theo mô hình tài liệu, chưa xác minh Supabase thực tế. Phần loại tin ẩn bên dưới chưa thay thế cơ chế lưu lịch sử phân phối khi tạm dừng nguồn; xem [giới hạn thiết kế](SUPABASE_DB_EXPLAINED.md#61-lịch-sử-phân-phối-khi-tạm-dừng--thiết-kế-còn-thiếu).
+> Ví dụ theo mô hình tài liệu, chưa xác minh Supabase thực tế. Phần loại tin ẩn bên dưới chưa thay thế cơ chế lưu lịch sử phân phối khi tạm dừng nguồn; xem [kiểm tra mong đợi](SUPABASE_DB_EXPLAINED.md#61-tạm-dừng-và-tiếp-tục-theo-dõi).
 
 ## 1. Cần gì?
 

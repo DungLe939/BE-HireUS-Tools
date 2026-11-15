@@ -194,23 +194,15 @@ Phạm vi SELECT dự kiến của `authenticated`:
 - Trường trích xuất thiếu căn cứ để NULL; chỉ đặt `original_status = 'deleted'` khi xác định bài đã xóa.
 - URL được chuẩn hóa trước khi lưu; việc thu thập, AI, cá nhân hóa và tạo thông báo do backend thực hiện.
 
-### 6.1. Lịch sử phân phối khi tạm dừng — thiết kế còn thiếu
+### 6.1. Tạm dừng và tiếp tục theo dõi
 
-- Yêu cầu: ghi nhận tin đã thuộc lịch sử của từng tài khoản; tin cũ giữ quyền xem sau khi nguồn chuyển sang `paused`, kể cả chưa lưu hoặc chưa có thông báo.
-- Sáu bảng trên chưa ghi nhận mọi lần phân phối. `notifications` không thay thế lịch sử này vì không phải tin nào cũng tạo thông báo. Không suy ra quyền lịch sử chỉ từ `collected_at`, `followed_at` hoặc `resumed_at`.
-- Đề xuất cần nhóm chốt: bản ghi phân phối riêng theo `(user_id, job_id)` và thời điểm phân phối đầu tiên; giữ bản ghi khi tạm dừng. Đây chưa phải bảng/migration được bổ sung trong PR.
-- Khi phân phối mới: chỉ nhận tin `eligible` cho người đang theo dõi `active`, kiểm tra trạng thái trước khi ghi nhận. Khi `paused`: không thêm phân phối mới. Khi tiếp tục: chỉ kích hoạt lại từ lượt kiểm tra kế tiếp; không tự cấp quyền cho toàn bộ tin của nguồn.
-- Khi đọc: dựa trên lịch sử phân phối và các quyền lưu/thông báo đã chốt. Danh sách cá nhân thêm `NOT EXISTS` dòng `users_saved_posts` của chính tài khoản có `hidden_at IS NOT NULL`, rồi mới sắp xếp/phân trang.
-- Cần bổ sung SQL/migration/policy và nguồn revision tương ứng trước khi xác nhận tích hợp danh sách cá nhân đầy đủ. Chưa kiểm thử RLS nhiều tài khoản.
+Kiểm tra mong đợi:
 
-Kiểm tra cần thực hiện:
+- Tin cũ đã được phân phối cho tài khoản vẫn xem được sau khi tạm dừng, kể cả chưa lưu hoặc chưa có thông báo.
+- Tin mới sau thời điểm tạm dừng không tự được phân phối cho tài khoản đang tạm dừng.
+- Tiếp tục theo dõi có hiệu lực từ lượt kiểm tra kế tiếp.
 
-| Tình huống | Kết quả mong đợi |
-|---|---|
-| A ẩn một tin rồi tải lại | Danh sách A không có tin; danh sách B không đổi |
-| A tạm dừng nguồn | Tin đã phân phối cho A vẫn xem được |
-| Nguồn có tin mới khi A tạm dừng | Không tự phân phối tin mới cho A |
-| A tiếp tục theo dõi | Nhận tin mới từ lượt kiểm tra kế tiếp |
+Policy phải tách quyền đọc tin cũ khỏi điều kiện nhận tin mới. Cách lưu lịch sử phân phối và SQL/migration/policy tương ứng chưa được bổ sung trong PR; chưa xác minh các kiểm tra trên với Supabase thực tế.
 
 ## 7. Bảng dùng cho từng màn hình
 
