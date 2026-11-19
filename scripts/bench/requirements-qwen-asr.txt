@@ -1,0 +1,2 @@
+# Cài torch và torchaudio CPU từ chỉ mục PyTorch trước.
+qwen-asr==0.0.6

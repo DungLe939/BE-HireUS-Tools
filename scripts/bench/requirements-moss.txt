@@ -1,0 +1,5 @@
+# Dùng API cùng phiên bản với config checkpoint MOSS đã duyệt.
+transformers==5.22.1
+accelerate==1.12.0
+av==19.0.2
+faster-whisper==1.2.1

@@ -1,0 +1,10 @@
+[
+  {"lang":"vi","kind":"VI","text":"Bạn hãy mô tả cách kiểm tra một dịch vụ mới trước khi triển khai và giải thích cách theo dõi để phát hiện sự cố sớm."},
+  {"lang":"vi","kind":"VI","text":"Khi hai người cùng thay đổi một phần của dự án, bạn làm gì để trao đổi với đồng đội và hợp nhất thay đổi an toàn?"},
+  {"lang":"vi","kind":"VI","text":"Hãy kể về một lần bạn tìm ra nguyên nhân của lỗi khó, cách bạn kiểm tra giả thuyết và điều bạn học được từ lần đó."},
+  {"lang":"en","kind":"EN","text":"Describe how you would investigate a sudden increase in response time and explain what evidence would help you distinguish a database issue from a network issue."},
+  {"lang":"en","kind":"EN","text":"Tell me how you would review a teammate's change, run the right tests, and communicate any risks before deploying a new version to production."},
+  {"lang":"vi","kind":"VI-EN","text":"Nếu REST API của bạn phản hồi chậm, hãy mô tả cách kiểm tra câu lệnh SQL và giảm độ trễ xuống dưới 180 giây trong môi trường Docker."},
+  {"lang":"vi","kind":"VI-EN","text":"Khi lượng lỗi tăng 10%, bạn sẽ kiểm tra log trong Docker, đối chiếu dữ liệu SQL và quyết định cách khôi phục REST API như thế nào?"},
+  {"lang":"vi","kind":"VI-EN","text":"Giả sử REST API phải hoàn thành trong 180 giây và giảm chi phí 10%, hãy giải thích cách bạn đo hiệu năng của SQL và Docker."}
+]

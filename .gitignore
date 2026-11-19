@@ -8,3 +8,9 @@ npm-debug.log*
 .env
 .env.*
 !.env.example
+
+# Dữ liệu giọng nói, môi trường và kết quả đo VMI trên máy cục bộ.
+/scripts/bench/data/
+/scripts/bench/envs/
+/scripts/bench/out/
+/scripts/bench/file_labels.json

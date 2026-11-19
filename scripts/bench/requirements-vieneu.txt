@@ -1,0 +1,2 @@
+# Dùng uv sync --locked tại VieNeu-TTS revision này để giữ cả phụ thuộc bắc cầu.
+vieneu @ git+https://github.com/pnnbao97/VieNeu-TTS.git@512de867d49b883d50cc47989c445d070f62362f

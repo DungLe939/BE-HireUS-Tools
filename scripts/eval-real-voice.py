@@ -2,7 +2,7 @@
 """Evaluate STT with real human voice samples against ground truth.
 Measures latency, WER/CER, technical term accuracy, and mechanical errors.
 """
-import glob
+import argparse
 import json
 import os
 import re
@@ -32,8 +32,10 @@ TERMS = [
 
 DOWNLOADS_DIR = Path('/home/djokov1c/Downloads')
 SERVICE_DIR = Path(__file__).resolve().parents[1] / 'services' / 'stt-whisper'
-CACHE_DIR = Path('/tmp/hireus-stt-models')
-VENV_PYTHON = Path('/tmp/hireus-whisper-venv/bin/python')
+BENCH_DIR = Path(__file__).resolve().parent / 'bench'
+LABELS_PATH = BENCH_DIR / 'file_labels.json'
+CACHE_DIR = Path(os.environ.get('VMI_BENCH_MODEL_CACHE', BENCH_DIR / 'envs' / 'models'))
+BASELINE_MODELS = ('small', 'medium', 'large-v3-turbo')
 
 
 def normalize_for_eval(text: str, lang: str = 'vi') -> str:
@@ -125,13 +127,13 @@ def start_service(model_name: str, port: int):
         'VMI_AUDIO_MAX_DURATION_MS': '195000',
     })
     cmd = [
-        str(VENV_PYTHON), '-m', 'uvicorn', 'main:app',
+        str(BENCH_DIR / 'envs' / f'faster-whisper-{model_name}' / 'bin' / 'python'), '-B', '-m', 'uvicorn', 'main:app',
         '--host', '127.0.0.1', '--port', str(port),
         '--log-level', 'warning'
     ]
     proc = subprocess.Popen(cmd, cwd=str(SERVICE_DIR), env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     base_url = f'http://127.0.0.1:{port}'
-    deadline = time.monotonic() + 45.0
+    deadline = time.monotonic() + 180.0
     client = httpx.Client(timeout=5.0)
     ready = False
     while time.monotonic() < deadline:
@@ -181,141 +183,104 @@ def transcribe_file(client: httpx.Client, base_url: str, file_path: Path, lang: 
     }
 
 
+def list_clips():
+    """Liệt kê clip và thời lượng thực để người duyệt dễ đối chiếu."""
+    files = sorted([*DOWNLOADS_DIR.glob('vi-*.mp3'), *DOWNLOADS_DIR.glob('en-*.mp3')])
+    durations = {}
+    for path in files:
+        duration = subprocess.check_output(
+            ['ffprobe', '-v', 'error', '-show_entries', 'format=duration',
+             '-of', 'default=noprint_wrappers=1:nokey=1', str(path)],
+            text=True,
+        )
+        durations[path.name] = float(duration)
+        print(f'  {path.name}: {durations[path.name]:.2f}s', flush=True)
+    return files, durations
+
+
+def suggest_labels(files):
+    """Dùng Whisper small để gợi ý, chỉ so với đáp án cùng ngôn ngữ."""
+    proc, url = start_service('small', pick_port())
+    labels = {}
+    try:
+        with httpx.Client(timeout=120.0) as client:
+            for path in files:
+                lang = path.name.split('-', 1)[0]
+                result = transcribe_file(client, url, path, lang)
+                if result['status'] == 200 and result['text'].strip():
+                    score, label = min(
+                        (compute_wer(truth, result['text'], lang)['wer'], key)
+                        for key, truth in GROUND_TRUTHS.items()
+                        if key.startswith(lang.upper() + '-')
+                    )
+                    labels[path.name] = label if score < 0.6 else 'NATURAL'
+                    print(f"  {path.name}: {labels[path.name]} (WER gợi ý {score:.3f})",
+                          flush=True)
+                else:
+                    labels[path.name] = None
+                    print(f"  {path.name}: chưa có gợi ý (HTTP {result['status']})", flush=True)
+    finally:
+        stop_service(proc)
+    return labels
+
+
+def load_confirmed_labels(files):
+    """Chỉ dùng nhãn do người dùng duyệt để lấy đáp án khi đo."""
+    try:
+        labels = json.loads(LABELS_PATH.read_text(encoding='utf-8'))
+    except (OSError, ValueError) as exc:
+        raise SystemExit('Cần file_labels.json hợp lệ đã được xác nhận.') from exc
+    if not isinstance(labels, dict) or set(labels) != {path.name for path in files}:
+        raise SystemExit('Tên clip trong file_labels.json phải khớp bộ clip hiện tại.')
+    for name, label in labels.items():
+        lang = name.split('-', 1)[0].upper()
+        if label != 'NATURAL' and (
+            not isinstance(label, str) or label not in GROUND_TRUTHS
+            or not label.startswith(lang + '-')
+        ):
+            raise SystemExit(f'Nhãn thiếu hoặc sai ngôn ngữ cho {name}.')
+    return labels
+
+
 def main():
-    print("=== STARTING REAL VOICE STT EVALUATION ===")
-    files = sorted(glob.glob(str(DOWNLOADS_DIR / 'vi-*.mp3')) + glob.glob(str(DOWNLOADS_DIR / 'en-*.mp3')))
-    print(f"Found {len(files)} files in {DOWNLOADS_DIR}")
-    for f in files:
-        dur = subprocess.check_output(
-            ['ffprobe', '-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', f],
-            text=True
-        ).strip()
-        print(f"  {Path(f).name}: {dur}s")
+    """Tạo nhãn nháp hoặc chạy benchmark sau khi đã có xác nhận."""
+    parser = argparse.ArgumentParser(description='Chuẩn bị nhãn giọng thật cho VMI')
+    parser.add_argument('--without-suggestions', action='store_true',
+                        help='Chỉ liệt kê clip nếu chưa có môi trường Whisper small')
+    parser.add_argument('--confirmed-labels', action='store_true',
+                        help='Chạy đo với file_labels.json đã được nghe và xác nhận')
+    parser.add_argument('--engines', nargs='+', help='Chỉ chạy các model được liệt kê')
+    parser.add_argument('--qwen-1-7b-one-run', action='store_true',
+                        help='Chỉ đo một lượt mỗi clip/chế độ với Qwen 1.7B trên CPU')
+    args = parser.parse_args()
+    files, durations = list_clips()
+    if not files:
+        parser.error('Không tìm thấy clip vi-*.mp3 hoặc en-*.mp3.')
+    if args.confirmed_labels:
+        sys.path.insert(0, str(BENCH_DIR))
+        from run_asr import ENGINES, run_engines
 
-    port = pick_port()
-    print(f"\n[PHASE 1] Starting small model on port {port} for file matching & primary latency...")
-    proc, base_url = start_service('small', port)
-    client = httpx.Client(timeout=120.0)
-
-    # Step 1: probe each file with vi and en to determine mapping
-    initial_transcripts = {}
-    print("\n--- Probing files for ground truth mapping ---")
-    for fpath_str in files:
-        fpath = Path(fpath_str)
-        fname = fpath.name
-        # Test both vi and en
-        res_vi = transcribe_file(client, base_url, fpath, 'vi')
-        res_en = transcribe_file(client, base_url, fpath, 'en')
-        initial_transcripts[fname] = {'vi': res_vi, 'en': res_en}
-
-    # Match files with ground truths
-    file_mapping = {}
-    gt_assigned = {}
-    print("\n--- Matching logic ---")
-    for fname, results in initial_transcripts.items():
-        best_gt = None
-        best_wer = 999.0
-        best_lang = 'vi'
-        best_hyp = ''
-        for gt_key, gt_text in GROUND_TRUTHS.items():
-            lang = 'vi' if gt_key.startswith('VI') else 'en'
-            hyp = results[lang]['text']
-            eval_res = compute_wer(gt_text, hyp, lang)
-            if eval_res['wer'] < best_wer:
-                best_wer = eval_res['wer']
-                best_gt = gt_key
-                best_lang = lang
-                best_hyp = hyp
-
-        # If WER < 0.6 with a ground truth, it's a solid match
-        if best_wer < 0.6:
-            confidence = 'Cao' if best_wer < 0.25 else 'Trung bình'
-            file_mapping[fname] = {
-                'assigned_label': best_gt,
-                'language': best_lang,
-                'confidence': confidence,
-                'best_wer': best_wer,
-                'probe_text': best_hyp
-            }
-            gt_assigned[best_gt] = fname
-        else:
-            file_mapping[fname] = {
-                'assigned_label': 'VI-NATURAL',
-                'language': 'vi',
-                'confidence': 'Cao',
-                'best_wer': best_wer,
-                'probe_text': results['vi']['text']
-            }
-
-    print("\n=== FILE MATCHING TABLE ===")
-    for fname in sorted(file_mapping.keys()):
-        m = file_mapping[fname]
-        print(f"File: {fname} -> {m['assigned_label']} (lang={m['language']}, confidence={m['confidence']}, wer={m['best_wer']:.3f})")
-
-    # Step 2: Measure small model (3 runs per file)
-    print("\n[PHASE 2] Measuring 'small' model (3 runs each)...")
-    small_results = {}
-    for fname in sorted(file_mapping.keys()):
-        fpath = DOWNLOADS_DIR / fname
-        lang = file_mapping[fname]['language']
-        runs = []
-        for r_idx in range(3):
-            res = transcribe_file(client, base_url, fpath, lang)
-            runs.append(res)
-            print(f"  {fname} [run {r_idx+1}/3]: status={res['status']} latency={res['latency_ms']:.1f}ms")
-        small_results[fname] = runs
-
-    stop_service(proc)
-    print("Stopped 'small' service.")
-
-    # Step 3: Measure medium model (2 runs each)
-    port_m = pick_port()
-    print(f"\n[PHASE 3] Starting 'medium' model on port {port_m} (2 runs each)...")
-    proc_m, base_url_m = start_service('medium', port_m)
-    medium_results = {}
-    for fname in sorted(file_mapping.keys()):
-        fpath = DOWNLOADS_DIR / fname
-        lang = file_mapping[fname]['language']
-        runs = []
-        for r_idx in range(2):
-            res = transcribe_file(client, base_url_m, fpath, lang)
-            runs.append(res)
-            print(f"  {fname} [run {r_idx+1}/2]: status={res['status']} latency={res['latency_ms']:.1f}ms")
-        medium_results[fname] = runs
-
-    stop_service(proc_m)
-    print("Stopped 'medium' service.")
-
-    # Step 4: Measure large-v3-turbo model (1 run for <= 30s files)
-    port_l = pick_port()
-    print(f"\n[PHASE 4] Starting 'large-v3-turbo' model on port {port_l} (1 run, files <= 30s)...")
-    proc_l, base_url_l = start_service('large-v3-turbo', port_l)
-    large_results = {}
-    for fname in sorted(file_mapping.keys()):
-        if file_mapping[fname]['assigned_label'] == 'VI-NATURAL':
-            print(f"  {fname}: skipping large-v3-turbo for long natural speech per instructions.")
-            continue
-        fpath = DOWNLOADS_DIR / fname
-        lang = file_mapping[fname]['language']
-        res = transcribe_file(client, base_url_l, fpath, lang)
-        print(f"  {fname} [run 1/1]: status={res['status']} latency={res['latency_ms']:.1f}ms")
-        large_results[fname] = [res]
-
-    stop_service(proc_l)
-    print("Stopped 'large-v3-turbo' service.")
-
-    # Save raw results
-    output_data = {
-        'file_mapping': file_mapping,
-        'small': small_results,
-        'medium': medium_results,
-        'large_v3_turbo': large_results
-    }
-    with open('/tmp/eval_raw_results.json', 'w', encoding='utf-8') as f:
-        json.dump(output_data, f, ensure_ascii=False, indent=2)
-    print("\nSaved raw benchmark data to /tmp/eval_raw_results.json")
+        labels = load_confirmed_labels(files)
+        engines = args.engines or ENGINES
+        if not set(engines) <= set(ENGINES):
+            parser.error('Có model chưa nhận diện được.')
+        clips = [{'file': path.name, 'path': str(path), 'label': labels[path.name],
+                  'duration_s': durations[path.name], 'lang': path.name.split('-', 1)[0]}
+                 for path in files]
+        run_engines(clips, engines, args.qwen_1_7b_one_run)
+        return
+    if LABELS_PATH.exists():
+        print(f'Đã có {LABELS_PATH}. Hãy kiểm tra và xác nhận nhãn.')
+        return
+    labels = ({path.name: None for path in files} if args.without_suggestions
+              else suggest_labels(files))
+    LABELS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    # Chế độ x giữ nguyên mọi bản nháp hoặc nhãn người dùng đã lưu.
+    with LABELS_PATH.open('x', encoding='utf-8') as draft:
+        json.dump(labels, draft, ensure_ascii=False, indent=2)
+        draft.write('\n')
+    print(f'Đã tạo {LABELS_PATH}. Hãy kiểm tra và xác nhận nhãn.')
 
 
 if __name__ == '__main__':
     main()
-
