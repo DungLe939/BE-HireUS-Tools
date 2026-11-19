@@ -23,6 +23,28 @@ Khung ban đầu chưa cấu hình PostgreSQL/Prisma, auth hay dịch vụ AI.
   phản hồi provider, timeout và lỗi theo phạm vi tính năng. Không log secrets
   hoặc dữ liệu cá nhân nhạy cảm.
 
+## Bắt buộc comment và giải thích bằng tiếng Việt
+
+- Với mọi tác vụ tạo mới hoặc chỉnh sửa code, **bắt buộc viết comment bằng tiếng
+  Việt ngay trong file**. Áp dụng cho code ứng dụng, test, script, SQL/migration,
+  cấu hình có hỗ trợ comment và ví dụ kỹ thuật trong tài liệu.
+- Mỗi hàm, component, class hoặc khối logic được tạo/sửa phải có comment tiếng
+  Việt đặt ngay phía trên hoặc bên trong phần xử lý liên quan. Khi sửa phần code
+  cũ chưa có comment tiếng Việt, bổ sung comment cho phần đó trong cùng thay đổi.
+- Comment giải thích mục đích, luồng xử lý, quy tắc nghiệp vụ, lý do lựa chọn và
+  điều kiện đặc biệt để thành viên khác dễ review. Viết ngắn, rõ, đúng hành vi;
+  không cần chú thích từng dòng. Khi logic đổi, sửa comment tương ứng.
+- Giữ nguyên tên biến, API, kiểu dữ liệu, tên thư viện và thuật ngữ kỹ thuật khi
+  cần chính xác; phần giải thích phải bằng tiếng Việt có dấu.
+- Với định dạng không hỗ trợ comment như JSON, ghi giải thích tiếng Việt trong
+  README hoặc tài liệu liên quan và chỉ rõ file/phần cấu hình được giải thích.
+  Không chèn comment làm hỏng định dạng.
+- Khi lập kế hoạch, review, viết tài liệu hoặc bàn giao, các nhận xét và giải thích
+  cũng phải bằng tiếng Việt. Mô tả trong phản hồi/PR không thay thế comment trong code.
+- Trước bàn giao hoặc chuẩn bị commit/push, tự rà diff để bảo đảm mọi phần code
+  tạo/sửa đã có comment tiếng Việt phù hợp; bổ sung phần còn thiếu trước khi báo
+  hoàn tất. Quy tắc này áp dụng cho mọi agent; không tự sửa code ngoài phạm vi tác vụ.
+
 ## Skills và quy trình
 
 Các `SKILL.md` là hướng dẫn dùng chung cho nhiều agent. Nếu công cụ không tự nạp,
@@ -49,10 +71,18 @@ Chỉ giao reviewer riêng khi tác vụ cho phép và công cụ hỗ trợ; kh
 
 ## Kiểm tra và bàn giao
 
-Khi bắt đầu việc có sửa, kiểm tra nhánh/upstream và thay đổi local; nếu chưa cập nhật
-nguồn cho đầu việc, nhắc pull một lần. Yêu cầu cập nhật/push cho phép fetch remote
-liên quan; không pull khi chỉ đọc local. Dùng fast-forward khi sạch và chỉ behind;
-không tự stash/reset hoặc force-push. Nếu phân kỳ, xem hai phía và bảo toàn lịch sử.
+Khi bắt đầu việc có sửa code/tài liệu chung, tự fetch `origin/main` và tích hợp vào
+nhánh hiện tại một lần cho đầu việc, không chờ người dùng nhắc pull. Chỉ dẫn đích khác
+được ưu tiên; upstream cá nhân không thay nhánh nền main. Trong workspace dùng
+`python3 ../.agents/scripts/sync_main.py --repo .` từ repo này.
+Clone độc lập: fetch main, kiểm tra tree; nếu main đã nằm trong HEAD thì tiếp tục,
+nếu tree sạch thì fast-forward hoặc merge bảo toàn lịch sử với
+`--no-autostash --no-overwrite-ignore`, không tự đổi nhánh hay checkout submodule.
+Được tạo merge commit tích hợp main; không commit công việc chưa lưu hoặc push.
+Tree bẩn cần tích hợp thì giữ nguyên file/index; conflict ở lượt merge vừa bắt đầu
+từ tree sạch thì abort lượt đó và báo, không abort thao tác Git có sẵn của người dùng.
+Không stash/reset/rebase/force-push hoặc bỏ hook. Mạng lỗi thì báo chưa xác minh main.
+Chỉ đọc/review/plan riêng hoặc chỉ dẫn offline/không sync thì không tự tích hợp.
 
 Trước bàn giao/push, xem cả commit chưa push, diff và file mới liên quan; đối chiếu
 README/cách chạy, config mẫu, contract, spec/tasks và tài liệu yêu cầu. Cập nhật
@@ -77,7 +107,8 @@ Mục tiêu coverage trong Proposal là kế hoạch; không tự đặt quality
 Phần cập nhật tài liệu liên quan trước bàn giao/push thuộc quy trình nhóm ở trên;
 sửa repo khác ngoài phần đó cần yêu cầu phối hợp. Đọc hướng dẫn repo kia trước khi sửa.
 Giữ nhánh đang làm và thay đổi local. Skills/hướng dẫn được chia sẻ qua Git,
-không thêm vào ignore. Chỉ commit/push khi được yêu cầu.
+không thêm vào ignore. Chỉ commit công việc/push khi được yêu cầu; merge commit tích hợp
+main ở đầu việc là ngoại lệ được nhóm cho phép ở trên.
 Báo đã làm gì, kiểm tra thực sự chạy, tài liệu sửa/giữ/xóa và lý do, phần còn thiếu;
 giải thích luồng đáng chú ý bằng tiếng Việt. Push bị remote đi trước thì fetch,
 tích hợp cùng đích đã xác minh, rà lại tài liệu và kiểm tra phần bị tác động.
