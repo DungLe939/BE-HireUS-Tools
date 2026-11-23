@@ -2,6 +2,7 @@ import { STT_PROVIDER } from './interfaces/stt-provider.interface';
 import { WhisperSttProvider } from './providers/whisper-stt.provider';
 import { TTS_PROVIDER } from './interfaces/tts-provider.interface';
 import { ZonosTtsProvider } from './providers/zonos-tts.provider';
+import { VieneuTtsProvider } from './providers/vieneu-tts.provider';
 import { Module, ValidationPipe } from '@nestjs/common';
 import { APP_PIPE } from '@nestjs/core';
 import { TempAuthGuard } from './guards/temp-auth.guard';
@@ -28,7 +29,16 @@ import { VmiService } from './vmi.service';
     TempAuthGuard,
     { provide: CV_PROVIDER, useClass: EmptyCvProvider },
     { provide: STT_PROVIDER, useClass: WhisperSttProvider },
-    { provide: TTS_PROVIDER, useClass: ZonosTtsProvider },
+    {
+      provide: TTS_PROVIDER,
+      // Chỉ bật VieNeu khi môi trường đã cấu hình dịch vụ và hai giọng.
+      useFactory: () => {
+        const engine = process.env.VMI_TTS_ENGINE ?? 'zonos';
+        if (engine === 'vieneu') return new VieneuTtsProvider();
+        if (engine === 'zonos') return new ZonosTtsProvider();
+        throw new Error('VMI_TTS_ENGINE chỉ nhận zonos hoặc vieneu.');
+      },
+    },
     { provide: AI_PROVIDER, useClass: GeminiAiProvider },
     { provide: VMI_SESSION_REPOSITORY, useClass: InMemoryVmiSessionRepository },
     VmiService,

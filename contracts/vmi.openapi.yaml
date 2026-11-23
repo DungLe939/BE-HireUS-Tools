@@ -88,7 +88,8 @@ paths:
         Owner only. Session must be SETUP or IN_PROGRESS and questionId must belong
         to its saved turns. SETUP currently has no generated questions, so returns
         404 until start succeeds. No saved text, answer or status is changed.
-        WAV PCM 16-bit mono 44100 Hz from self-hosted ZONOS3-Mini.
+        WAV PCM 16-bit mono 44100 Hz. The configured TTS adapter selects the voice
+        using the session language.
         Failures preserve the question text and allow retry. Concurrent requests
         for the same question share one generation; audio is not persisted/cached.
       parameters:

@@ -44,7 +44,6 @@ for size in base small; do
   "$p" -B scripts/eval-real-voice.py --confirmed-labels --engines "pho-$size-ct2"
 done
 "$p" -B "$b/report_asr.py"
-"$p" -B -m unittest discover -s "$b" -p test_bench.py
 ```
 
 Load time của ASR bắt đầu trước khi import adapter. Nếu cache còn trống, phép đo
@@ -73,6 +72,38 @@ for loader in speech multimodal causal; do
 done
 "$p" -B "$b/report_asr.py"
 ```
+
+## So sánh Whisper cho lượt hỏi đáp
+
+Dùng bộ nhãn đã xác nhận ở trên. Lượt đo dùng CPU int8, bốn luồng, cùng thiết
+lập giải mã, với Whisper small, Turbo và Turbo kèm danh sách thuật ngữ cố định.
+Mẫu 30 giây lấy từ clip `NATURAL` chỉ dùng để đo độ trễ.
+
+```bash
+HF_HUB_OFFLINE=1 HF_HOME="$b/envs/models" \
+  "$p" -B "$b/compare_whisper_live.py" --output "$b/out/vmi-whisper-live" --reps 3
+```
+
+Dùng thư mục đầu ra mới cho mỗi lần đo. `summary.json` có p50/p95 theo nhóm,
+WER, recall và số lượt thuật ngữ bị chèn vượt số lần xuất hiện trong đáp án.
+Đây là độ trễ trên máy suy luận. Mốc người dùng chờ được đo riêng qua trình duyệt.
+
+## Thử bản chép cuối bằng Qwen
+
+Chạy với Python của venv `qwen-1.7b` đã cài ở trên. Thay đường dẫn dưới đây bằng
+tệp ghi âm gốc trên máy thử và chọn `vi`, `en` hoặc `auto`.
+
+```bash
+qwen="$b/envs/qwen-1.7b/bin/python"
+job=$("$qwen" -B "$b/qwen_final_job.py" enqueue --language auto /path/to/take1.wav)
+"$qwen" -B "$b/qwen_final_job.py" status "$job"
+HF_HUB_OFFLINE=1 HF_HOME="$b/envs/models" "$qwen" -B "$b/qwen_final_job.py" run "$job"
+```
+
+Dùng `retry "$job"` với cùng thiết lập cache khi job lỗi hoặc tiến trình bị
+ngắt giữa chừng. Có thể đọc kết quả trong `out/qwen-final/<id>/job.json`. File
+này chỉ chủ máy đọc được và nằm trong thư mục Git bỏ qua. Bản thử chạy cục bộ
+và tách riêng khỏi dữ liệu chấm điểm cũng như API của VMI.
 
 ## TTS
 
